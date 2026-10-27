@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-
-	"mytools/internal/core"
 )
 
 type syncBuffer struct {
@@ -142,25 +140,4 @@ func waitFor(t *testing.T, out *syncBuffer, want string) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("log không chứa %q: %q", want, out.String())
-}
-
-func TestIsDetached(t *testing.T) {
-	gui := &core.App{AppSpec: core.AppSpec{GUI: true}}
-	plain := &core.App{}
-	tests := []struct {
-		lifecycle string
-		app       *core.App
-		want      bool
-	}{
-		{"window", plain, true},
-		{"service", plain, true},
-		{"oneshot", gui, false},
-		{"", gui, true},
-		{"", plain, false},
-	}
-	for _, test := range tests {
-		if got := isDetached(test.lifecycle, test.app); got != test.want {
-			t.Errorf("isDetached(%q, gui=%v) = %v, want %v", test.lifecycle, test.app.GUI, got, test.want)
-		}
-	}
 }

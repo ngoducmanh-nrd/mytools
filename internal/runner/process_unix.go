@@ -1,0 +1,10 @@
+//go:build !windows
+
+package runner
+
+import "syscall"
+
+// DetachedSysProcAttr giúp tiến trình con chạy tách khỏi hub bằng session riêng.
+func DetachedSysProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{Setsid: true}
+}

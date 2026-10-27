@@ -276,6 +276,30 @@ func TestApplyLifecycle(t *testing.T) {
 	}
 }
 
+func TestIsDetached(t *testing.T) {
+	tests := []struct {
+		name      string
+		lifecycle string
+		gui       bool
+		want      bool
+	}{
+		{name: "window lifecycle", lifecycle: "window", want: true},
+		{name: "service lifecycle", lifecycle: "service", want: true},
+		{name: "oneshot lifecycle", lifecycle: "oneshot", want: false},
+		{name: "empty with GUI app", gui: true, want: true},
+		{name: "empty with plain app", want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			app := &core.App{AppSpec: core.AppSpec{GUI: test.gui}}
+			if got := IsDetached(test.lifecycle, app); got != test.want {
+				t.Errorf("IsDetached(%q, gui=%v) = %v, want %v", test.lifecycle, test.gui, got, test.want)
+			}
+		})
+	}
+}
+
 func writeToolsFile(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "tools.toml")

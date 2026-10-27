@@ -27,9 +27,12 @@ func NewRootCmd() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return config.EnsureInit()
 		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDefaultUI(cmd)
+		},
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
-	root.AddCommand(newVersionCmd(), newListCmd(), newOpenCmd(), newRunCmd(), newAppCmd(), newDoctorCmd(), newPsCmd(), newStopCmd(), newRestartCmd(), newLogsCmd())
+	root.AddCommand(newVersionCmd(), newListCmd(), newOpenCmd(), newRunCmd(), newAppCmd(), newDoctorCmd(), newPsCmd(), newStopCmd(), newRestartCmd(), newLogsCmd(), newWebCmd())
 	return root
 }
 

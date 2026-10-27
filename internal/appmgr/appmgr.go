@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -389,6 +391,67 @@ func (m *Manager) Remove(id string) error {
 		return fmt.Errorf("xóa app %q: %w", id, err)
 	}
 	return nil
+}
+
+// EnsureNotRunning báo lỗi nếu id còn đang chạy; tự dọn trạng thái của tiến trình đã chết.
+func (m *Manager) EnsureNotRunning(id string) error {
+	state, err := m.LoadRunState(id)
+	if err != nil {
+		if errors.Is(err, ErrNotRunning) {
+			return nil
+		}
+		if removeErr := m.RemoveRunState(id); removeErr != nil {
+			return fmt.Errorf("%w (không dọn được trạng thái hỏng: %v)", err, removeErr)
+		}
+		return nil
+	}
+	if !IsProcessAlive(state.PID, state.StartTime) {
+		return m.RemoveRunState(id)
+	}
+	return fmt.Errorf("%q đang chạy (PID %d); dùng \"mt stop %s\" hoặc \"mt restart %s\"", id, state.PID, id, id)
+}
+
+// OpenRunLog mở file log hôm nay của app và ghi header nguồn chạy.
+func (m *Manager) OpenRunLog(appID, source string, args []string) (*os.File, string, error) {
+	if strings.TrimSpace(m.dataDir) == "" {
+		return nil, "", errors.New("thư mục dữ liệu app rỗng")
+	}
+	dir := filepath.Join(m.dataDir, "logs", appID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, "", fmt.Errorf("tạo thư mục log %s: %w", dir, err)
+	}
+
+	logPath := filepath.Join(dir, time.Now().Format("2006-01-02")+".log")
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, "", fmt.Errorf("mở log %s: %w", logPath, err)
+	}
+
+	header := fmt.Sprintf("[%s] %s %s", time.Now().Format(time.RFC3339), source, appID)
+	if len(args) > 0 {
+		header += " " + strings.Join(args, " ")
+	}
+	if _, err := fmt.Fprintln(file, header); err != nil {
+		_ = file.Close()
+		return nil, "", fmt.Errorf("ghi log %s: %w", logPath, err)
+	}
+	return file, logPath, nil
+}
+
+// CommandLine ghép các đối số thành chuỗi lệnh để hiển thị và ghi log.
+func CommandLine(process *exec.Cmd) string {
+	if process == nil || len(process.Args) == 0 {
+		return ""
+	}
+	parts := make([]string, len(process.Args))
+	for i, arg := range process.Args {
+		if arg == "" || strings.ContainsAny(arg, " \t\"'") {
+			parts[i] = strconv.Quote(arg)
+		} else {
+			parts[i] = arg
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func (m *Manager) appsDir() (string, error) {

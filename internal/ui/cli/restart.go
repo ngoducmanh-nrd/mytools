@@ -24,7 +24,7 @@ func newRestartCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !isDetached(target.lifecycle, target.app) {
+			if !registry.IsDetached(target.lifecycle, target.app) {
 				return fmt.Errorf("%q không phải tool sống (lifecycle window/service); dùng \"mt run %s\"", args[0], args[0])
 			}
 			return runApp(cmd, mgr, target.app, target.args, target.id, target.lifecycle, true)

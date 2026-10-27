@@ -7,10 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -86,7 +83,7 @@ func runApp(cmd *cobra.Command, mgr *appmgr.Manager, app *core.App, args []strin
 	if runCtx == nil {
 		runCtx = context.Background()
 	}
-	detached := isDetached(lifecycle, app)
+	detached := registry.IsDetached(lifecycle, app)
 	buildCtx := runCtx
 	if detached {
 		buildCtx = context.Background()
@@ -113,12 +110,12 @@ func runApp(cmd *cobra.Command, mgr *appmgr.Manager, app *core.App, args []strin
 	}
 
 	if detached && !restart {
-		if err := ensureNotRunning(mgr, targetID); err != nil {
+		if err := mgr.EnsureNotRunning(targetID); err != nil {
 			return err
 		}
 	}
 
-	logFile, logPath, err := openRunLog(mgr.DataDir(), app.ID, args)
+	logFile, logPath, err := mgr.OpenRunLog(app.ID, "mt run", args)
 	if err != nil {
 		return err
 	}
@@ -167,12 +164,17 @@ func runForeground(cmd *cobra.Command, process *exec.Cmd, runID string, logFile 
 	}
 
 	for event := range events {
-		if event.Kind == "error" {
+		switch event.Kind {
+		case "ask":
+			writePrompt(cmd.OutOrStdout(), event.Text)
+			writeLine(logFile, event.Text)
+		case "error":
 			writeLine(cmd.ErrOrStderr(), event.Text)
-		} else {
+			writeLine(logFile, event.Text)
+		default:
 			writeLine(cmd.OutOrStdout(), event.Text)
+			writeLine(logFile, event.Text)
 		}
-		writeLine(logFile, event.Text)
 	}
 
 	if err := <-done; err != nil {
@@ -181,31 +183,11 @@ func runForeground(cmd *cobra.Command, process *exec.Cmd, runID string, logFile 
 	return writeErr
 }
 
-func isDetached(lifecycle string, app *core.App) bool {
-	switch lifecycle {
-	case "window", "service":
-		return true
-	case "oneshot":
-		return false
+func writePrompt(w io.Writer, text string) {
+	if w == nil {
+		return
 	}
-	return app != nil && app.GUI
-}
-
-func ensureNotRunning(mgr *appmgr.Manager, id string) error {
-	state, err := mgr.LoadRunState(id)
-	if err != nil {
-		if errors.Is(err, appmgr.ErrNotRunning) {
-			return nil
-		}
-		if removeErr := mgr.RemoveRunState(id); removeErr != nil {
-			return fmt.Errorf("%w (không dọn được trạng thái hỏng: %v)", err, removeErr)
-		}
-		return nil
-	}
-	if !appmgr.IsProcessAlive(state.PID, state.StartTime) {
-		return mgr.RemoveRunState(id)
-	}
-	return fmt.Errorf("%q đang chạy (PID %d); dùng \"mt stop %s\" hoặc \"mt restart %s\"", id, state.PID, id, id)
+	_, _ = fmt.Fprint(w, text)
 }
 
 func buildAppCommand(ctx context.Context, app core.App, args []string) (*exec.Cmd, error) {
@@ -255,37 +237,11 @@ func confirmGitRepo(ctx context.Context, in io.Reader, out io.Writer, mgr *appmg
 	}
 }
 
-func openRunLog(dataDir, appID string, args []string) (*os.File, string, error) {
-	if strings.TrimSpace(dataDir) == "" {
-		return nil, "", errors.New("thư mục dữ liệu app rỗng")
-	}
-	dir := filepath.Join(dataDir, "logs", appID)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, "", fmt.Errorf("tạo thư mục log %s: %w", dir, err)
-	}
-
-	logPath := filepath.Join(dir, time.Now().Format("2006-01-02")+".log")
-	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return nil, "", fmt.Errorf("mở log %s: %w", logPath, err)
-	}
-
-	header := fmt.Sprintf("[%s] mt run %s", time.Now().Format(time.RFC3339), appID)
-	if len(args) > 0 {
-		header += " " + strings.Join(args, " ")
-	}
-	if _, err := fmt.Fprintln(file, header); err != nil {
-		_ = file.Close()
-		return nil, "", fmt.Errorf("ghi log %s: %w", logPath, err)
-	}
-	return file, logPath, nil
-}
-
 func startDetached(cmd *cobra.Command, mgr *appmgr.Manager, process *exec.Cmd, logFile *os.File, logPath, id string) error {
 	process.Stdout = logFile
 	process.Stderr = logFile
 	process.Stdin = nil
-	process.SysProcAttr = detachedSysProcAttr()
+	process.SysProcAttr = runner.DetachedSysProcAttr()
 
 	if err := process.Start(); err != nil {
 		_ = logFile.Close()
@@ -305,7 +261,7 @@ func startDetached(cmd *cobra.Command, mgr *appmgr.Manager, process *exec.Cmd, l
 		ID:        id,
 		PID:       pid,
 		StartTime: startTime,
-		Cmd:       commandLine(process),
+		Cmd:       appmgr.CommandLine(process),
 	}
 	if err := mgr.SaveRunState(state); err != nil {
 		_ = appmgr.StopProcess(state)
@@ -322,21 +278,6 @@ func startDetached(cmd *cobra.Command, mgr *appmgr.Manager, process *exec.Cmd, l
 
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Đã chạy %q (PID %d). Log: %s\n", id, pid, logPath)
 	return err
-}
-
-func commandLine(process *exec.Cmd) string {
-	if process == nil || len(process.Args) == 0 {
-		return ""
-	}
-	parts := make([]string, len(process.Args))
-	for i, arg := range process.Args {
-		if arg == "" || strings.ContainsAny(arg, " \t\"'") {
-			parts[i] = strconv.Quote(arg)
-		} else {
-			parts[i] = arg
-		}
-	}
-	return strings.Join(parts, " ")
 }
 
 func readAnswer(r io.Reader) (string, error) {

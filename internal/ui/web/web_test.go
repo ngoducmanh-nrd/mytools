@@ -1,0 +1,523 @@
+package web
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"mytools/internal/core"
+)
+
+type fakeRun struct {
+	history []core.Event
+	subs    map[chan core.Event]struct{}
+	mu      sync.Mutex
+}
+
+type fakeRunner struct {
+	mu       sync.Mutex
+	tools    []core.Tool
+	runs     map[string]*fakeRun
+	answers  map[string][]string
+	toolErr  error
+	runCalls int
+}
+
+func newFakeRunner() *fakeRunner {
+	return &fakeRunner{
+		tools: []core.Tool{
+			{
+				ID:   "dl",
+				Name: "Tải video",
+				Kind: "app",
+				App:  "yt-dlp",
+				Tags: []string{"media"},
+				Params: []core.Param{
+					{Name: "url", Type: "string", Required: true},
+					{Name: "out", Type: "path", Default: "~/Downloads"},
+					{Name: "audio_only", Type: "bool", Default: true},
+					{Name: "quality", Type: "enum", Choices: []string{"best", "720"}},
+				},
+			},
+			{ID: "movies", Name: "Movie Tracker", Kind: "url", Target: "https://movie-tracker-v2-jade.vercel.app/"},
+		},
+		runs:    make(map[string]*fakeRun),
+		answers: make(map[string][]string),
+	}
+}
+
+func (f *fakeRunner) ListTools() ([]core.Tool, error) {
+	if f.toolErr != nil {
+		return nil, f.toolErr
+	}
+	return f.tools, nil
+}
+
+func (f *fakeRunner) RunTool(ctx context.Context, id string, params map[string]string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.runCalls++
+	for _, tool := range f.tools {
+		if tool.ID == id {
+			runID := fmt.Sprintf("run-%d", f.runCalls)
+			f.runs[runID] = &fakeRun{subs: make(map[chan core.Event]struct{})}
+			return runID, nil
+		}
+	}
+	return "", fmt.Errorf("không có tool %q", id)
+}
+
+func (f *fakeRunner) Subscribe(runID string) (<-chan core.Event, func(), error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	run := f.runs[runID]
+	if run == nil {
+		return nil, nil, fmt.Errorf("không có lần chạy %q", runID)
+	}
+
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	ch := make(chan core.Event, len(run.history)+8)
+	for _, event := range run.history {
+		ch <- event
+	}
+	run.subs[ch] = struct{}{}
+
+	unsubscribe := func() {
+		run.mu.Lock()
+		defer run.mu.Unlock()
+		if _, ok := run.subs[ch]; !ok {
+			return
+		}
+		delete(run.subs, ch)
+		close(ch)
+	}
+	return ch, unsubscribe, nil
+}
+
+func (f *fakeRunner) Answer(runID, answer string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.runs[runID]; !ok {
+		return fmt.Errorf("không có lần chạy %q", runID)
+	}
+	f.answers[runID] = append(f.answers[runID], answer)
+	return nil
+}
+
+func (f *fakeRunner) publish(runID string, event core.Event) {
+	f.mu.Lock()
+	run := f.runs[runID]
+	f.mu.Unlock()
+	if run == nil {
+		return
+	}
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	run.history = append(run.history, event)
+	for ch := range run.subs {
+		select {
+		case ch <- event:
+		default:
+		}
+	}
+}
+
+func (f *fakeRunner) subCount(runID string) int {
+	f.mu.Lock()
+	run := f.runs[runID]
+	f.mu.Unlock()
+	if run == nil {
+		return 0
+	}
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return len(run.subs)
+}
+
+func newTestServer(t *testing.T, runner ToolRunner) (*Server, *httptest.Server) {
+	t.Helper()
+	s, err := New(0, runner)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ts := httptest.NewUnstartedServer(s.Handler())
+	ts.Listener = s.Listener()
+	ts.Start()
+	t.Cleanup(ts.Close)
+	return s, ts
+}
+
+func TestIndexContainsToken(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+
+	resp, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), s.Token()) {
+		t.Error("HTML thiếu token")
+	}
+	if strings.Contains(string(body), "__MT_TOKEN__") {
+		t.Error("placeholder token chưa được thay")
+	}
+	if !strings.Contains(string(body), "Trung tâm tool") {
+		t.Error("HTML thiếu nội dung giao diện")
+	}
+}
+
+func TestSecurityChecks(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+
+	get := func(host, origin string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if host != "" {
+			req.Host = host
+		}
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	post := func(host, origin, token string) *http.Response {
+		t.Helper()
+		body := strings.NewReader(`{"id":"dl","params":{"url":"https://example.com"}}`)
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/run", body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if host != "" {
+			req.Host = host
+		}
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		if token != "" {
+			req.Header.Set("X-MT-Token", token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	if resp := get("", ""); resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		t.Errorf("GET host chuẩn: %d", resp.StatusCode)
+	} else {
+		resp.Body.Close()
+	}
+	if resp := get("127.0.0.1:1", ""); resp.StatusCode != http.StatusForbidden {
+		resp.Body.Close()
+		t.Errorf("GET sai port: %d", resp.StatusCode)
+	} else {
+		resp.Body.Close()
+	}
+	if resp := get("example.com:7878", ""); resp.StatusCode != http.StatusForbidden {
+		resp.Body.Close()
+		t.Errorf("GET sai hostname: %d", resp.StatusCode)
+	} else {
+		resp.Body.Close()
+	}
+	if resp := get("", "http://evil.example"); resp.StatusCode != http.StatusForbidden {
+		resp.Body.Close()
+		t.Errorf("GET origin lạ: %d", resp.StatusCode)
+	} else {
+		resp.Body.Close()
+	}
+	if resp := get("", "http://"+ts.Listener.Addr().String()); resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		t.Errorf("GET origin khớp: %d", resp.StatusCode)
+	} else {
+		resp.Body.Close()
+	}
+
+	if resp := post("", "", ""); resp.StatusCode != http.StatusForbidden {
+		resp.Body.Close()
+		t.Errorf("POST thiếu token: %d", resp.StatusCode)
+	} else {
+		resp.Body.Close()
+	}
+	if resp := post("", "", "sai-token"); resp.StatusCode != http.StatusForbidden {
+		resp.Body.Close()
+		t.Errorf("POST sai token: %d", resp.StatusCode)
+	} else {
+		resp.Body.Close()
+	}
+	if resp := post("", "http://evil.example", s.Token()); resp.StatusCode != http.StatusForbidden {
+		resp.Body.Close()
+		t.Errorf("POST origin lạ: %d", resp.StatusCode)
+	} else {
+		resp.Body.Close()
+	}
+	if resp := post("", "http://"+ts.Listener.Addr().String(), s.Token()); resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		t.Errorf("POST hợp lệ: %d", resp.StatusCode)
+	} else {
+		resp.Body.Close()
+	}
+}
+
+func TestAPITools(t *testing.T) {
+	_, ts := newTestServer(t, newFakeRunner())
+
+	resp, err := http.Get(ts.URL + "/api/tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var tools []toolJSON
+	if err := json.NewDecoder(resp.Body).Decode(&tools); err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 2 {
+		t.Fatalf("tools = %d, want 2", len(tools))
+	}
+	if tools[0].ID != "dl" || tools[0].Name != "Tải video" || len(tools[0].Params) != 4 {
+		t.Errorf("tool[0] = %+v", tools[0])
+	}
+	if tools[0].Params[1].Default != "~/Downloads" {
+		t.Errorf("default out = %v", tools[0].Params[1].Default)
+	}
+	if tools[1].Kind != "url" || tools[1].Target == "" {
+		t.Errorf("tool[1] = %+v", tools[1])
+	}
+}
+
+func TestRunEndpoint(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+
+	post := func(body string) (*http.Response, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/run", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-MT-Token", s.Token())
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var parsed map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&parsed)
+		return resp, parsed
+	}
+
+	resp, parsed := post(`{"id":"dl","params":{"url":"https://example.com/v"}}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("run: %d %v", resp.StatusCode, parsed)
+	}
+	if parsed["run_id"] == nil || parsed["run_id"].(string) == "" {
+		t.Errorf("thiếu run_id: %v", parsed)
+	}
+
+	resp, parsed = post(`{"id":"khong-co"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("tool lạ: %d", resp.StatusCode)
+	}
+	if parsed["error"] == nil {
+		t.Errorf("thiếu error: %v", parsed)
+	}
+
+	resp, parsed = post(`không phải JSON`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("JSON hỏng: %d", resp.StatusCode)
+	}
+}
+
+func TestAnswerEndpoint(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+	fake := s.runner.(*fakeRunner)
+	fake.mu.Lock()
+	fake.runs["run-1"] = &fakeRun{subs: make(map[chan core.Event]struct{})}
+	fake.mu.Unlock()
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/answer",
+		strings.NewReader(`{"run_id":"run-1","answer":"Minh"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-MT-Token", s.Token())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("answer: %d", resp.StatusCode)
+	}
+
+	fake.mu.Lock()
+	answers := append([]string(nil), fake.answers["run-1"]...)
+	fake.mu.Unlock()
+	if len(answers) != 1 || answers[0] != "Minh" {
+		t.Errorf("answers = %v", answers)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, ts.URL+"/api/answer",
+		strings.NewReader(`{"run_id":"khong-co","answer":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-MT-Token", s.Token())
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("answer run lạ: %d", resp.StatusCode)
+	}
+}
+
+func TestEventsSSEReplayAndLive(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+	fake := s.runner.(*fakeRunner)
+
+	fake.mu.Lock()
+	fake.runs["run-1"] = &fakeRun{
+		history: []core.Event{
+			{RunID: "run-1", Kind: "log", Text: "dòng cũ 1"},
+			{RunID: "run-1", Kind: "log", Text: "dòng cũ 2"},
+		},
+		subs: make(map[chan core.Event]struct{}),
+	}
+	fake.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events?runID=run-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if got := resp.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/event-stream") {
+		t.Fatalf("Content-Type = %q", got)
+	}
+
+	lines := make(chan string, 32)
+	go func() {
+		reader := bufio.NewReader(resp.Body)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				close(lines)
+				return
+			}
+			lines <- strings.TrimRight(line, "\n")
+		}
+	}()
+
+	expect := func(want string) {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for {
+			select {
+			case line, ok := <-lines:
+				if !ok {
+					t.Fatalf("hết stream khi chờ %q", want)
+				}
+				if strings.Contains(line, want) {
+					return
+				}
+			case <-deadline:
+				t.Fatalf("hết giờ chờ %q", want)
+			}
+		}
+	}
+
+	expect(`"kind":"log"`)
+	expect(`"text":"dòng cũ 2"`)
+
+	fake.publish("run-1", core.Event{RunID: "run-1", Kind: "progress", Text: "[download] 50%", Pct: 50})
+	expect("[download] 50%")
+
+	if fake.subCount("run-1") != 1 {
+		t.Errorf("subCount = %d, want 1", fake.subCount("run-1"))
+	}
+
+	// Client ngắt kết nối: handler phải hủy đăng ký, không ảnh hưởng lần chạy.
+	cancel()
+	deadline := time.Now().Add(5 * time.Second)
+	for fake.subCount("run-1") > 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if fake.subCount("run-1") != 0 {
+		t.Errorf("subCount sau khi ngắt = %d, want 0", fake.subCount("run-1"))
+	}
+}
+
+func TestEventsUnknownRun(t *testing.T) {
+	_, ts := newTestServer(t, newFakeRunner())
+
+	resp, err := http.Get(ts.URL + "/api/events?runID=khong-co")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestServerURLAndPort(t *testing.T) {
+	s, _ := newTestServer(t, newFakeRunner())
+	if s.Port() <= 0 || s.Port() > 65535 {
+		t.Errorf("Port = %d", s.Port())
+	}
+	want := fmt.Sprintf("http://127.0.0.1:%d/?token=%s", s.Port(), s.Token())
+	if s.URL() != want {
+		t.Errorf("URL() = %q, want %q", s.URL(), want)
+	}
+	if len(s.Token()) != 32 {
+		t.Errorf("token dài %d, want 32", len(s.Token()))
+	}
+}
+
+func TestToolsError(t *testing.T) {
+	fake := newFakeRunner()
+	fake.toolErr = fmt.Errorf("tools.toml hỏng")
+	_, ts := newTestServer(t, fake)
+
+	resp, err := http.Get(ts.URL + "/api/tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", resp.StatusCode)
+	}
+}

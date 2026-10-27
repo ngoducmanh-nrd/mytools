@@ -189,6 +189,17 @@ func ApplyLifecycle(tool *core.Tool, app *core.App) {
 	tool.Lifecycle = "window"
 }
 
+// IsDetached cho biết app chạy tách khỏi terminal (GUI hoặc lifecycle window/service).
+func IsDetached(lifecycle string, app *core.App) bool {
+	switch lifecycle {
+	case "window", "service":
+		return true
+	case "oneshot":
+		return false
+	}
+	return app != nil && app.GUI
+}
+
 func lineOr(line, fallback int) int {
 	if line > 0 {
 		return line

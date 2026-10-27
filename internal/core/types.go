@@ -8,11 +8,11 @@ import (
 )
 
 type Event struct {
-	RunID string
-	Kind  string
-	Text  string
-	Pct   float64
-	Data  map[string]any
+	RunID string         `json:"run_id"`
+	Kind  string         `json:"kind"`
+	Text  string         `json:"text"`
+	Pct   float64        `json:"pct,omitempty"`
+	Data  map[string]any `json:"data,omitempty"`
 }
 
 type Param struct {
