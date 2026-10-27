@@ -139,6 +139,19 @@ kind = "native"
 	assertContains(t, err, ":4:", "tool[0].id", `"Bad" không hợp lệ`)
 }
 
+func TestLoadInvalidLifecycle(t *testing.T) {
+	path := writeToolsFile(t, `schema_version = 1
+
+[[tool]]
+id = "a"
+name = "A"
+kind = "native"
+lifecycle = "daemon"
+`)
+	_, err := Load(path)
+	assertContains(t, err, ":7:", "tool[0].lifecycle", `"daemon" không hợp lệ`)
+}
+
 func TestLoadForbiddenID(t *testing.T) {
 	if len(ForbiddenIDs) != 16 {
 		t.Fatalf("ForbiddenIDs has %d entries, want 16", len(ForbiddenIDs))

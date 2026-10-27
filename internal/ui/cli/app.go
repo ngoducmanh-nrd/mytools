@@ -188,7 +188,7 @@ func newAppRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runApp(cmd, mgr, app, args[1:])
+			return runApp(cmd, mgr, app, args[1:], app.ID, "", false)
 		},
 	}
 }

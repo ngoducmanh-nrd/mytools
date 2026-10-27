@@ -4,6 +4,11 @@ package cli
 
 import "syscall"
 
-func guiSysProcAttr() *syscall.SysProcAttr {
-	return &syscall.SysProcAttr{HideWindow: true}
+const detachedProcess = 0x00000008
+
+func detachedSysProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP | detachedProcess,
+	}
 }

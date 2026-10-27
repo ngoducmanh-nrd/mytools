@@ -4,6 +4,6 @@ package cli
 
 import "syscall"
 
-func guiSysProcAttr() *syscall.SysProcAttr {
+func detachedSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
 }

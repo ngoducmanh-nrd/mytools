@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 	"mytools/internal/appmgr"
 	"mytools/internal/core"
+	"mytools/internal/registry"
 	"mytools/internal/runner"
 )
 
@@ -30,13 +32,7 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var tool *core.Tool
-			for i := range tools {
-				if tools[i].ID == args[0] {
-					tool = &tools[i]
-					break
-				}
-			}
+			tool := findTool(tools, args[0])
 			if tool == nil {
 				return fmt.Errorf("không có tool %q (xem \"mt list\")", args[0])
 			}
@@ -60,21 +56,32 @@ func newRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			registry.ApplyLifecycle(tool, app)
 
 			runArgs := append([]string{}, tool.Args...)
 			runArgs = append(runArgs, args[1:]...)
-			return runApp(cmd, mgr, app, runArgs)
+			return runApp(cmd, mgr, app, runArgs, tool.ID, tool.Lifecycle, false)
 		},
 	}
 }
 
-func runApp(cmd *cobra.Command, mgr *appmgr.Manager, app *core.App, args []string) error {
+func findTool(tools []core.Tool, id string) *core.Tool {
+	for i := range tools {
+		if tools[i].ID == id {
+			return &tools[i]
+		}
+	}
+	return nil
+}
+
+func runApp(cmd *cobra.Command, mgr *appmgr.Manager, app *core.App, args []string, targetID, lifecycle string, restart bool) error {
 	runCtx := cmd.Context()
 	if runCtx == nil {
 		runCtx = context.Background()
 	}
+	detached := isDetached(lifecycle, app)
 	buildCtx := runCtx
-	if app.GUI {
+	if detached {
 		buildCtx = context.Background()
 	}
 
@@ -92,13 +99,25 @@ func runApp(cmd *cobra.Command, mgr *appmgr.Manager, app *core.App, args []strin
 		return err
 	}
 
+	if restart {
+		if err := stopRun(cmd, mgr, targetID, false); err != nil {
+			return err
+		}
+	}
+
+	if detached && !restart {
+		if err := ensureNotRunning(mgr, targetID); err != nil {
+			return err
+		}
+	}
+
 	logFile, logPath, err := openRunLog(mgr.DataDir(), app.ID, args)
 	if err != nil {
 		return err
 	}
 
-	if app.GUI {
-		return startDetached(cmd, process, logFile, logPath, app.ID)
+	if detached {
+		return startDetached(cmd, mgr, process, logFile, logPath, targetID)
 	}
 	defer logFile.Close()
 
@@ -115,6 +134,33 @@ func runApp(cmd *cobra.Command, mgr *appmgr.Manager, app *core.App, args []strin
 		return fmt.Errorf("chạy app %q: %w", app.ID, err)
 	}
 	return nil
+}
+
+func isDetached(lifecycle string, app *core.App) bool {
+	switch lifecycle {
+	case "window", "service":
+		return true
+	case "oneshot":
+		return false
+	}
+	return app != nil && app.GUI
+}
+
+func ensureNotRunning(mgr *appmgr.Manager, id string) error {
+	state, err := mgr.LoadRunState(id)
+	if err != nil {
+		if errors.Is(err, appmgr.ErrNotRunning) {
+			return nil
+		}
+		if removeErr := mgr.RemoveRunState(id); removeErr != nil {
+			return fmt.Errorf("%w (không dọn được trạng thái hỏng: %v)", err, removeErr)
+		}
+		return nil
+	}
+	if !appmgr.IsProcessAlive(state.PID, state.StartTime) {
+		return mgr.RemoveRunState(id)
+	}
+	return fmt.Errorf("%q đang chạy (PID %d); dùng \"mt stop %s\" hoặc \"mt restart %s\"", id, state.PID, id, id)
 }
 
 func buildAppCommand(ctx context.Context, app core.App, args []string) (*exec.Cmd, error) {
@@ -190,24 +236,62 @@ func openRunLog(dataDir, appID string, args []string) (*os.File, string, error) 
 	return file, logPath, nil
 }
 
-func startDetached(cmd *cobra.Command, process *exec.Cmd, logFile *os.File, logPath, appID string) error {
+func startDetached(cmd *cobra.Command, mgr *appmgr.Manager, process *exec.Cmd, logFile *os.File, logPath, id string) error {
 	process.Stdout = logFile
 	process.Stderr = logFile
 	process.Stdin = nil
-	process.SysProcAttr = guiSysProcAttr()
+	process.SysProcAttr = detachedSysProcAttr()
 
 	if err := process.Start(); err != nil {
 		_ = logFile.Close()
-		return fmt.Errorf("mở app %q: %w", appID, err)
+		return fmt.Errorf("mở %q: %w", id, err)
 	}
 	pid := process.Process.Pid
-	_ = logFile.Close()
 
-	if err := process.Process.Release(); err != nil {
-		return fmt.Errorf("app %q đã chạy (PID %d) nhưng chưa giải phóng được tiến trình: %v", appID, pid, err)
+	startTime, err := appmgr.ProcessStartTime(pid)
+	if err != nil {
+		_ = process.Process.Kill()
+		_ = process.Process.Release()
+		_ = logFile.Close()
+		return fmt.Errorf("không đọc được thời điểm bắt đầu của %q (PID %d): %w", id, pid, err)
 	}
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Đã mở app %q (PID %d). Log: %s\n", appID, pid, logPath)
+
+	state := appmgr.RunState{
+		ID:        id,
+		PID:       pid,
+		StartTime: startTime,
+		Cmd:       commandLine(process),
+	}
+	if err := mgr.SaveRunState(state); err != nil {
+		_ = appmgr.StopProcess(state)
+		_ = process.Process.Kill()
+		_ = process.Process.Release()
+		_ = logFile.Close()
+		return fmt.Errorf("lưu trạng thái chạy của %q: %w", id, err)
+	}
+
+	_ = logFile.Close()
+	if err := process.Process.Release(); err != nil {
+		return fmt.Errorf("%q đã chạy (PID %d) và đã ghi trạng thái, nhưng chưa giải phóng được tiến trình: %v", id, pid, err)
+	}
+
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "Đã chạy %q (PID %d). Log: %s\n", id, pid, logPath)
 	return err
+}
+
+func commandLine(process *exec.Cmd) string {
+	if process == nil || len(process.Args) == 0 {
+		return ""
+	}
+	parts := make([]string, len(process.Args))
+	for i, arg := range process.Args {
+		if arg == "" || strings.ContainsAny(arg, " \t\"'") {
+			parts[i] = strconv.Quote(arg)
+		} else {
+			parts[i] = arg
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func readAnswer(r io.Reader) (string, error) {

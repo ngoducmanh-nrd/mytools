@@ -173,6 +173,10 @@ func validateDocument(doc *toolsDocument, idx *sourceIndex, file string) []error
 				add(lineOr(idx.paramFieldLine(i, j, "choices"), paramLine), paramPrefix+".choices", `type "enum" bắt buộc có choices`)
 			}
 		}
+
+		if tool.Lifecycle != "" && !validLifecycle(tool.Lifecycle) {
+			add(lineOr(idx.toolFieldLine(i, "lifecycle"), toolLine), prefix+".lifecycle", "%q không hợp lệ (chỉ nhận oneshot|window|service)", tool.Lifecycle)
+		}
 	}
 
 	return errs
@@ -198,6 +202,14 @@ func lineOr(line, fallback int) int {
 func validKind(kind string) bool {
 	switch kind {
 	case "url", "process", "app", "native":
+		return true
+	}
+	return false
+}
+
+func validLifecycle(lifecycle string) bool {
+	switch lifecycle {
+	case "oneshot", "window", "service":
 		return true
 	}
 	return false
