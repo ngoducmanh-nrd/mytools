@@ -43,6 +43,7 @@ function el(tag, className, text) {
 function paramInput(param) {
   const wrap = document.createElement("div");
   const label = el("label", null, param.name);
+  label.title = param.name;
   if (param.required) {
     label.appendChild(el("span", "req", " *"));
   }
@@ -59,6 +60,8 @@ function paramInput(param) {
     wrap.appendChild(text);
     return { wrap, input };
   }
+
+  wrap.className = "param-row";
 
   if (param.type === "enum") {
     input = document.createElement("select");
