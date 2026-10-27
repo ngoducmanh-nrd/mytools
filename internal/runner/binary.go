@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -59,6 +60,34 @@ func Install(ctx context.Context, app core.App, out chan<- core.Event) error {
 		Data:  map[string]any{"sha256": sum},
 	})
 	return nil
+}
+
+func BinaryCommand(ctx context.Context, app core.App, args []string) (*exec.Cmd, error) {
+	if app.Runtime != "binary" {
+		return nil, fmt.Errorf("runtime %q không phải binary", app.Runtime)
+	}
+	if len(app.Entry) == 0 {
+		return nil, errors.New(`app.Entry: thiếu trường "entry"`)
+	}
+
+	destPath, err := installDest(app.Dir, app.Entry[0])
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(destPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("app %q chưa cài (thiếu %s)", app.ID, destPath)
+		}
+		return nil, fmt.Errorf("kiểm tra %s: %w", destPath, err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("%s là thư mục, không phải file chạy", destPath)
+	}
+
+	cmd := exec.CommandContext(ctx, destPath, args...)
+	cmd.Dir = app.Dir
+	return cmd, nil
 }
 
 func download(ctx context.Context, rawURL, destPath string) (string, error) {

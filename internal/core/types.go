@@ -51,11 +51,12 @@ type AppSpec struct {
 }
 
 type AppState struct {
-	URL           string    `json:"url"`
-	Sha256        string    `json:"sha256"`
-	DownloadedAt  time.Time `json:"downloaded_at"`
-	Version       string    `json:"version"`
-	TrustedCommit string    `json:"trusted_commit"`
+	URL              string    `json:"url"`
+	Sha256           string    `json:"sha256"`
+	DownloadedAt     time.Time `json:"downloaded_at"`
+	Version          string    `json:"version"`
+	TrustedCommit    string    `json:"trusted_commit"`
+	RequirementsHash string    `json:"requirements_hash,omitempty"`
 }
 
 type App struct {

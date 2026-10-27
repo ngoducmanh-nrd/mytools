@@ -1,9 +1,11 @@
 package appmgr
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -277,4 +279,224 @@ func testSpec(id string) core.AppSpec {
 		Download:      "https://example.com/tool.exe",
 		Entry:         []string{"tool.exe"},
 	}
+}
+
+func TestCloneGitPythonApp(t *testing.T) {
+	requireGit(t)
+	repo := newGitRepo(t, map[string]string{
+		"app.toml": `schema_version = 1
+id = "hello-py"
+runtime = "python"
+requirements = "requirements.txt"
+entry = ["python", "main.py"]
+`,
+		"requirements.txt": "requests\n",
+		"main.py":          "print('hello')\n",
+	})
+	head := strings.TrimSpace(gitIn(t, repo, "rev-parse", "HEAD"))
+
+	dataDir := filepath.Join(t.TempDir(), "dữ liệu mt")
+	mgr := New(dataDir)
+	app, err := mgr.CloneGit(context.Background(), repo, "")
+	if err != nil {
+		t.Fatalf("CloneGit: %v", err)
+	}
+	if app.ID != "hello-py" || app.Runtime != "python" {
+		t.Fatalf("app = %+v", app.AppSpec)
+	}
+	if app.Source != repo {
+		t.Fatalf("Source = %q, muốn %q", app.Source, repo)
+	}
+	if app.Ref != head || len(head) < 7 {
+		t.Fatalf("Ref = %q, HEAD = %q", app.Ref, head)
+	}
+	for _, name := range []string{"app.toml", "requirements.txt", "main.py"} {
+		if _, err := os.Stat(filepath.Join(app.Dir, name)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+
+	gotHead, err := mgr.HeadCommit(context.Background(), "hello-py")
+	if err != nil || gotHead != head {
+		t.Fatalf("HeadCommit = %q, %v; muốn %q", gotHead, err, head)
+	}
+
+	loaded, err := mgr.LoadApp("hello-py")
+	if err != nil {
+		t.Fatalf("LoadApp: %v", err)
+	}
+	if loaded.Source != repo || loaded.Ref != head {
+		t.Fatalf("app.toml chưa ghi source/ref: %+v", loaded.AppSpec)
+	}
+
+	entries, err := os.ReadDir(filepath.Join(dataDir, "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "hello-py" {
+		t.Fatalf("còn thư mục tạm: %v", entries)
+	}
+}
+
+func TestCloneGitMissingAppTOML(t *testing.T) {
+	requireGit(t)
+	repo := newGitRepo(t, map[string]string{"main.py": "print('hello')\n"})
+
+	dataDir := t.TempDir()
+	_, err := New(dataDir).CloneGit(context.Background(), repo, "")
+	if !errors.Is(err, core.ErrAppConfigMissing) {
+		t.Fatalf("lỗi phải bọc ErrAppConfigMissing: %v", err)
+	}
+	entries, statErr := os.ReadDir(filepath.Join(dataDir, "apps"))
+	if statErr != nil {
+		t.Fatalf("đọc apps: %v", statErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("bản clone chưa được xóa: %v", entries)
+	}
+}
+
+func TestCloneGitExistingApp(t *testing.T) {
+	requireGit(t)
+	repo := newGitRepo(t, map[string]string{
+		"app.toml": `schema_version = 1
+id = "demo"
+runtime = "python"
+entry = ["python", "main.py"]
+`,
+		"main.py": "print('hello')\n",
+	})
+
+	dataDir := t.TempDir()
+	mgr := New(dataDir)
+	if _, err := mgr.Add(testSpec("demo")); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	_, err := mgr.CloneGit(context.Background(), repo, "")
+	if err == nil || !strings.Contains(err.Error(), "đã tồn tại") {
+		t.Fatalf("lỗi không đúng: %v", err)
+	}
+	entries, statErr := os.ReadDir(filepath.Join(dataDir, "apps"))
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if len(entries) != 1 || entries[0].Name() != "demo" {
+		t.Fatalf("apps = %v", entries)
+	}
+	loaded, err := mgr.LoadApp("demo")
+	if err != nil {
+		t.Fatalf("LoadApp: %v", err)
+	}
+	if loaded.Runtime != "binary" {
+		t.Fatalf("app cũ bị ghi đè: %+v", loaded.AppSpec)
+	}
+}
+
+func TestCloneGitRef(t *testing.T) {
+	requireGit(t)
+	repo := newGitRepo(t, map[string]string{
+		"app.toml": `schema_version = 1
+id = "hello-py"
+runtime = "python"
+entry = ["python", "main.py"]
+`,
+		"main.py": "print('v1')\n",
+	})
+	first := strings.TrimSpace(gitIn(t, repo, "rev-parse", "HEAD"))
+
+	if err := os.WriteFile(filepath.Join(repo, "main.py"), []byte("print('v2')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "--quiet", "-m", "v2")
+	second := strings.TrimSpace(gitIn(t, repo, "rev-parse", "HEAD"))
+	if first == second {
+		t.Fatal("hai commit phải khác nhau")
+	}
+
+	mgr := New(t.TempDir())
+	app, err := mgr.CloneGit(context.Background(), repo, first)
+	if err != nil {
+		t.Fatalf("CloneGit: %v", err)
+	}
+	if app.Ref != first {
+		t.Fatalf("Ref = %q, muốn %q", app.Ref, first)
+	}
+	data, err := os.ReadFile(filepath.Join(app.Dir, "main.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "v1") {
+		t.Fatalf("main.py = %q, phải là bản v1", data)
+	}
+	head, err := mgr.HeadCommit(context.Background(), app.ID)
+	if err != nil || head != first {
+		t.Fatalf("HeadCommit = %q, %v", head, err)
+	}
+
+	if _, err := mgr.CloneGit(context.Background(), repo, "-nguy-hiem"); err == nil {
+		t.Fatal("CloneGit phải từ chối ref bắt đầu bằng -")
+	}
+}
+
+func TestListSkipsCloneStaging(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dataDir, "apps", ".clone-abc"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	apps, err := New(dataDir).List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(apps) != 0 {
+		t.Fatalf("apps = %+v", apps)
+	}
+}
+
+func TestRebuildRejectsBinary(t *testing.T) {
+	mgr := New(t.TempDir())
+	if _, err := mgr.Add(testSpec("demo")); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	err := mgr.Rebuild(context.Background(), "demo", nil)
+	if err == nil || !strings.Contains(err.Error(), "chỉ hỗ trợ runtime python") {
+		t.Fatalf("lỗi không đúng: %v", err)
+	}
+}
+
+func requireGit(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("không có git trong PATH")
+	}
+}
+
+func newGitRepo(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for name, content := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitIn(t, dir, "init", "--quiet")
+	gitIn(t, dir, "add", ".")
+	gitIn(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "--quiet", "-m", "init")
+	return dir
+}
+
+func gitIn(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
+	return string(output)
 }

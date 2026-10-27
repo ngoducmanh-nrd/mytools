@@ -1,12 +1,14 @@
 package appmgr
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"mytools/internal/core"
+	"mytools/internal/runner"
 )
 
 const (
@@ -64,7 +67,7 @@ func (m *Manager) List() ([]core.App, error) {
 
 	apps := make([]core.App, 0, len(entries))
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 		app, err := m.LoadApp(entry.Name())
@@ -128,6 +131,129 @@ func (m *Manager) Add(spec core.AppSpec) (*core.App, error) {
 	}
 
 	return &core.App{AppSpec: spec, Dir: dir}, nil
+}
+
+func (m *Manager) CloneGit(ctx context.Context, rawURL, ref string) (*core.App, error) {
+	if strings.TrimSpace(rawURL) == "" {
+		return nil, errors.New("URL hoặc đường dẫn git không được để trống")
+	}
+	if err := validateRef(ref); err != nil {
+		return nil, err
+	}
+
+	appsDir, err := m.appsDir()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(appsDir, 0o700); err != nil {
+		return nil, fmt.Errorf("tạo thư mục app: %w", err)
+	}
+
+	staging, err := os.MkdirTemp(appsDir, ".clone-*")
+	if err != nil {
+		return nil, fmt.Errorf("tạo thư mục clone tạm: %w", err)
+	}
+	installed := false
+	defer func() {
+		if !installed {
+			_ = os.RemoveAll(staging)
+		}
+	}()
+
+	if _, err := gitOutput(ctx, "clone", "--quiet", "--", rawURL, staging); err != nil {
+		return nil, err
+	}
+	if ref != "" {
+		if _, err := gitOutput(ctx, "-C", staging, "checkout", "--quiet", "--detach", ref); err != nil {
+			return nil, err
+		}
+	}
+	head, err := gitOutput(ctx, "-C", staging, "rev-parse", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	if head == "" {
+		return nil, errors.New("không đọc được commit HEAD của bản clone")
+	}
+
+	spec, err := readAppSpec(filepath.Join(staging, appSpecName))
+	if err != nil {
+		if errors.Is(err, core.ErrAppConfigMissing) {
+			return nil, fmt.Errorf("%w (đã xóa bản clone của %s)", err, rawURL)
+		}
+		return nil, err
+	}
+	spec.Source = rawURL
+	spec.Ref = head
+	if err := validateSpec(*spec); err != nil {
+		return nil, fmt.Errorf("app.toml: %w", err)
+	}
+
+	dir, err := m.appDir(spec.ID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(dir); err == nil {
+		return nil, fmt.Errorf("app %q đã tồn tại", spec.ID)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("kiểm tra app %q: %w", spec.ID, err)
+	}
+
+	if err := writeAppSpec(staging, *spec); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(staging, dir); err != nil {
+		return nil, fmt.Errorf("đặt app %q vào %s: %w", spec.ID, dir, err)
+	}
+	installed = true
+	return &core.App{AppSpec: *spec, Dir: dir}, nil
+}
+
+func (m *Manager) HeadCommit(ctx context.Context, id string) (string, error) {
+	dir, err := m.existingAppDir(id)
+	if err != nil {
+		return "", err
+	}
+	head, err := gitOutput(ctx, "-C", dir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("app %q: %w", id, err)
+	}
+	if head == "" {
+		return "", fmt.Errorf("app %q: không đọc được commit HEAD", id)
+	}
+	return head, nil
+}
+
+func (m *Manager) Rebuild(ctx context.Context, id string, out chan<- core.Event) error {
+	app, err := m.LoadApp(id)
+	if err != nil {
+		return err
+	}
+	if app.Runtime != "python" {
+		return fmt.Errorf("app %q: rebuild chỉ hỗ trợ runtime python (đang là %q)", id, app.Runtime)
+	}
+
+	envDir := filepath.Join(app.Dir, "env")
+	info, err := os.Lstat(envDir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return fmt.Errorf("kiểm tra %s: %w", envDir, err)
+	case info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("từ chối xóa %s: là liên kết", envDir)
+	case !info.IsDir():
+		return fmt.Errorf("từ chối xóa %s: không phải thư mục", envDir)
+	default:
+		if err := os.RemoveAll(envDir); err != nil {
+			return fmt.Errorf("xóa môi trường cũ %s: %w", envDir, err)
+		}
+	}
+
+	return runner.InstallPython(ctx, *app, out)
+}
+
+func (m *Manager) DataDir() string {
+	return m.dataDir
 }
 
 func (m *Manager) SaveState(id string, state core.AppState) error {
@@ -250,8 +376,14 @@ func validateSpec(spec core.AppSpec) error {
 		if spec.Source == "" {
 			return errors.New(`source: thiếu trường bắt buộc "source"`)
 		}
-		if len(spec.Entry) == 0 {
-			return errors.New(`entry: thiếu trường bắt buộc "entry"`)
+		if len(spec.Entry) < 2 || spec.Entry[0] != "python" {
+			return errors.New(`entry: runtime "python" cần dạng ["python", "<script>"]`)
+		}
+		if spec.Requirements != "" {
+			cleaned := filepath.Clean(filepath.FromSlash(spec.Requirements))
+			if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("requirements: %q phải nằm trong thư mục app", spec.Requirements)
+			}
 		}
 	default:
 		return fmt.Errorf("runtime %q không hợp lệ (chỉ nhận binary|python)", spec.Runtime)
@@ -275,6 +407,46 @@ func validateEntryFile(name string) error {
 		return fmt.Errorf("%q phải là tên file trong thư mục app, không chứa đường dẫn", name)
 	}
 	return nil
+}
+
+func validateRef(ref string) error {
+	if ref == "" {
+		return nil
+	}
+	if strings.HasPrefix(ref, "-") || strings.ContainsAny(ref, "\x00\r\n") {
+		return fmt.Errorf("ref %q không hợp lệ", ref)
+	}
+	return nil
+}
+
+func gitOutput(ctx context.Context, args ...string) (string, error) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return "", errors.New("không tìm thấy Git trong PATH; cài Git tại https://git-scm.com/downloads rồi chạy \"mt doctor\"")
+	}
+
+	cmd := exec.CommandContext(ctx, gitPath, args...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("git bị hủy: %w", ctx.Err())
+		}
+		return "", fmt.Errorf("git thất bại: %w%s", err, tailText(string(output)))
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func tailText(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	const limit = 1200
+	if len(text) > limit {
+		text = "..." + text[len(text)-limit:]
+	}
+	return "\n" + text
 }
 
 type appTOML struct {
@@ -321,6 +493,17 @@ func writeAppSpec(dir string, spec core.AppSpec) error {
 }
 
 func loadAppSpec(path string) (*core.AppSpec, error) {
+	spec, err := readAppSpec(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSpec(*spec); err != nil {
+		return nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
+	}
+	return spec, nil
+}
+
+func readAppSpec(path string) (*core.AppSpec, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -332,9 +515,6 @@ func loadAppSpec(path string) (*core.AppSpec, error) {
 	var spec core.AppSpec
 	if err := toml.Unmarshal(data, &spec); err != nil {
 		return nil, appDecodeError(filepath.Base(path), err)
-	}
-	if err := validateSpec(spec); err != nil {
-		return nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
 	}
 	return &spec, nil
 }

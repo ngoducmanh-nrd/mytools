@@ -21,7 +21,7 @@ func newAppCmd() *cobra.Command {
 		Use:   "app",
 		Short: "Quản lý app",
 	}
-	cmd.AddCommand(newAppListCmd(), newAppAddCmd(), newAppRmCmd())
+	cmd.AddCommand(newAppListCmd(), newAppAddCmd(), newAppRunCmd(), newAppRebuildCmd(), newAppRmCmd())
 	return cmd
 }
 
@@ -54,46 +54,163 @@ func newAppListCmd() *cobra.Command {
 }
 
 func newAppAddCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "add <id-builtin|url-binary>",
+	var ref string
+	cmd := &cobra.Command{
+		Use:   "add <id-builtin|url-binary|url-git>",
 		Short: "Cài app",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			spec, err := specFromArgument(args[0])
-			if err != nil {
-				return err
-			}
 			mgr, err := newAppManager()
 			if err != nil {
 				return err
 			}
 
-			app, err := mgr.Add(spec)
-			if err != nil {
-				return err
+			arg := args[0]
+			if spec, ok := appmgr.BuiltinSpec(arg); ok {
+				return addBinaryApp(cmd, mgr, spec)
 			}
-
-			out := cmd.OutOrStdout()
-			if _, err := fmt.Fprintf(out, "Đang tải %s...\n", spec.Download); err != nil {
-				return err
-			}
-			if err := runner.Install(cmd.Context(), *app, nil); err != nil {
-				if cleanupErr := mgr.Remove(spec.ID); cleanupErr != nil {
-					return fmt.Errorf("%w (không dọn được thư mục app: %v)", err, cleanupErr)
+			if rawURL, ok := directBinaryURL(arg); ok {
+				spec, err := binarySpec(rawURL)
+				if err != nil {
+					return err
 				}
-				return err
+				return addBinaryApp(cmd, mgr, spec)
 			}
+			return addGitApp(cmd, mgr, arg, ref)
+		},
+	}
+	cmd.Flags().StringVar(&ref, "ref", "", "commit, tag hoặc branch cho app clone từ git")
+	return cmd
+}
 
-			installed, err := mgr.LoadApp(spec.ID)
+func addBinaryApp(cmd *cobra.Command, mgr *appmgr.Manager, spec core.AppSpec) error {
+	app, err := mgr.Add(spec)
+	if err != nil {
+		return err
+	}
+
+	out := cmd.OutOrStdout()
+	if _, err := fmt.Fprintf(out, "Đang tải %s...\n", spec.Download); err != nil {
+		return err
+	}
+	if err := runner.Install(cmd.Context(), *app, nil); err != nil {
+		if cleanupErr := mgr.Remove(spec.ID); cleanupErr != nil {
+			return fmt.Errorf("%w (không dọn được thư mục app: %v)", err, cleanupErr)
+		}
+		return err
+	}
+
+	installed, err := mgr.LoadApp(spec.ID)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "Đã cài app %q vào %s\n", installed.ID, installed.Dir); err != nil {
+		return err
+	}
+	if installed.Sha256 != "" {
+		_, err = fmt.Fprintf(out, "sha256: %s\n", installed.Sha256)
+	}
+	return err
+}
+
+func addGitApp(cmd *cobra.Command, mgr *appmgr.Manager, rawURL, ref string) error {
+	out := cmd.OutOrStdout()
+	if _, err := fmt.Fprintf(out, "Đang clone %s...\n", rawURL); err != nil {
+		return err
+	}
+
+	app, err := mgr.CloneGit(cmd.Context(), rawURL, ref)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "Đã clone app %q vào %s\n", app.ID, app.Dir); err != nil {
+		return err
+	}
+	if app.Ref != "" {
+		if _, err := fmt.Fprintf(out, "commit: %s\n", app.Ref); err != nil {
+			return err
+		}
+	}
+
+	var installErr error
+	switch app.Runtime {
+	case "binary":
+		if _, err := fmt.Fprintf(out, "Đang tải %s...\n", app.Download); err != nil {
+			return err
+		}
+		installErr = runner.Install(cmd.Context(), *app, nil)
+	case "python":
+		if _, err := fmt.Fprintf(out, "Đang tạo môi trường Python...\n"); err != nil {
+			return err
+		}
+		installErr = runner.InstallPython(cmd.Context(), *app, nil)
+	default:
+		installErr = fmt.Errorf("runtime %q chưa hỗ trợ", app.Runtime)
+	}
+	if installErr != nil {
+		hint := fmt.Sprintf("chạy \"mt app rebuild %s\"", app.ID)
+		if app.Runtime != "python" {
+			hint = fmt.Sprintf("xóa bằng \"mt app rm %s\" rồi thêm lại", app.ID)
+		}
+		return fmt.Errorf("%w\nApp %q đã được clone tại %s; sửa lỗi rồi %s.", installErr, app.ID, app.Dir, hint)
+	}
+
+	if app.Runtime == "python" {
+		_, err = fmt.Fprintf(out, "Đã cài app %q vào %s (env: %s)\n", app.ID, app.Dir, filepath.Join(app.Dir, "env"))
+		return err
+	}
+
+	installed, err := mgr.LoadApp(app.ID)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "Đã cài app %q vào %s\n", installed.ID, installed.Dir); err != nil {
+		return err
+	}
+	if installed.Sha256 != "" {
+		_, err = fmt.Fprintf(out, "sha256: %s\n", installed.Sha256)
+	}
+	return err
+}
+
+func newAppRunCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:                "run <id> [args...]",
+		Short:              "Chạy app",
+		DisableFlagParsing: true,
+		Args:               cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mgr, err := newAppManager()
 			if err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintf(out, "Đã cài app %q vào %s\n", installed.ID, installed.Dir); err != nil {
+			app, err := mgr.LoadApp(args[0])
+			if err != nil {
 				return err
 			}
-			if installed.Sha256 != "" {
-				_, err = fmt.Fprintf(out, "sha256: %s\n", installed.Sha256)
+			return runApp(cmd, mgr, app, args[1:])
+		},
+	}
+}
+
+func newAppRebuildCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rebuild <id>",
+		Short: "Dựng lại môi trường app",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			mgr, err := newAppManager()
+			if err != nil {
+				return err
 			}
+			out := cmd.OutOrStdout()
+			if _, err := fmt.Fprintf(out, "Đang dựng lại môi trường cho app %q...\n", args[0]); err != nil {
+				return err
+			}
+			if err := mgr.Rebuild(cmd.Context(), args[0], nil); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(out, "Đã dựng lại môi trường app %q.\n", args[0])
 			return err
 		},
 	}
@@ -127,36 +244,57 @@ func newAppManager() (*appmgr.Manager, error) {
 }
 
 func appStatus(app core.App) string {
-	if app.DownloadedAt.IsZero() && app.Sha256 == "" {
+	switch app.Runtime {
+	case "binary":
+		if app.DownloadedAt.IsZero() && app.Sha256 == "" {
+			return "chưa cài"
+		}
+		if len(app.Entry) == 0 {
+			return "chưa cài"
+		}
+		info, err := os.Stat(filepath.Join(app.Dir, app.Entry[0]))
+		if err == nil && !info.IsDir() {
+			return "đã cài"
+		}
 		return "chưa cài"
-	}
-	if app.Runtime != "binary" || len(app.Entry) == 0 {
+	case "python":
+		if runner.PythonReady(app) {
+			return "đã cài"
+		}
+		return "chưa cài"
+	default:
 		return "đã cài"
 	}
-	info, err := os.Stat(filepath.Join(app.Dir, app.Entry[0]))
-	if err == nil && !info.IsDir() {
-		return "đã cài"
-	}
-	return "chưa cài"
 }
 
-func specFromArgument(arg string) (core.AppSpec, error) {
-	if spec, ok := appmgr.BuiltinSpec(arg); ok {
-		return spec, nil
-	}
-
+func directBinaryURL(arg string) (string, bool) {
 	parsed, err := url.Parse(arg)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return core.AppSpec{}, fmt.Errorf("chưa hỗ trợ %q: dùng app builtin (yt-dlp) hoặc URL tải binary trực tiếp", arg)
+		return "", false
 	}
-
 	name := path.Base(parsed.Path)
 	if name == "." || name == "/" || name == "" {
-		return core.AppSpec{}, fmt.Errorf("URL %q phải có tên file", arg)
+		return "", false
+	}
+	ext := path.Ext(name)
+	if ext == "" || ext == "." || strings.EqualFold(ext, ".git") {
+		return "", false
+	}
+	return arg, true
+}
+
+func binarySpec(rawURL string) (core.AppSpec, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return core.AppSpec{}, fmt.Errorf("URL không hợp lệ: %w", err)
+	}
+	name := path.Base(parsed.Path)
+	if name == "." || name == "/" || name == "" {
+		return core.AppSpec{}, fmt.Errorf("URL %q phải có tên file", rawURL)
 	}
 	ext := path.Ext(name)
 	if ext == "" || ext == "." {
-		return core.AppSpec{}, fmt.Errorf("URL %q phải trỏ trực tiếp tới file binary (có phần mở rộng)", arg)
+		return core.AppSpec{}, fmt.Errorf("URL %q phải trỏ trực tiếp tới file binary (có phần mở rộng)", rawURL)
 	}
 
 	id := sanitizeAppID(strings.TrimSuffix(name, ext))
@@ -168,7 +306,7 @@ func specFromArgument(arg string) (core.AppSpec, error) {
 		SchemaVersion: 1,
 		ID:            id,
 		Runtime:       "binary",
-		Download:      arg,
+		Download:      rawURL,
 		Entry:         []string{name},
 	}, nil
 }

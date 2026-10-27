@@ -3,27 +3,40 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"mytools/internal/core"
 )
 
-func TestSpecFromArgumentBuiltin(t *testing.T) {
-	spec, err := specFromArgument("yt-dlp")
-	if err != nil {
-		t.Fatalf("specFromArgument: %v", err)
+func TestDirectBinaryURL(t *testing.T) {
+	cases := []struct {
+		arg  string
+		want bool
+	}{
+		{"https://example.com/tools/My%20Tool.exe?download=1", true},
+		{"https://example.com/file.zip", true},
+		{"https://github.com/user/repo.git", false},
+		{"https://github.com/user/repo", false},
+		{"https://example.com/", false},
+		{"ftp://example.com/tool.exe", false},
+		{"./app", false},
+		{"C:\\tool\\app.exe", false},
+		{"", false},
 	}
-	if spec.ID != "yt-dlp" || spec.Runtime != "binary" || spec.Download == "" || len(spec.Entry) != 1 {
-		t.Fatalf("spec = %+v", spec)
+	for _, tc := range cases {
+		if _, got := directBinaryURL(tc.arg); got != tc.want {
+			t.Fatalf("directBinaryURL(%q) = %v, muốn %v", tc.arg, got, tc.want)
+		}
 	}
 }
 
-func TestSpecFromArgumentDirectURL(t *testing.T) {
+func TestBinarySpec(t *testing.T) {
 	rawURL := "https://example.com/tools/My%20Tool.exe?download=1"
-	spec, err := specFromArgument(rawURL)
+	spec, err := binarySpec(rawURL)
 	if err != nil {
-		t.Fatalf("specFromArgument: %v", err)
+		t.Fatalf("binarySpec: %v", err)
 	}
 	if spec.ID != "my-tool" {
 		t.Fatalf("ID = %q", spec.ID)
@@ -36,19 +49,9 @@ func TestSpecFromArgumentDirectURL(t *testing.T) {
 	}
 }
 
-func TestSpecFromArgumentRejectsUnsupported(t *testing.T) {
-	cases := []string{
-		"",
-		"./app",
-		"C:\\tool\\app.exe",
-		"https://github.com/user/repo",
-		"https://example.com/",
-		"ftp://example.com/tool.exe",
-	}
-	for _, arg := range cases {
-		if _, err := specFromArgument(arg); err == nil {
-			t.Fatalf("specFromArgument(%q) phải lỗi", arg)
-		}
+func TestBinarySpecRejectsMissingName(t *testing.T) {
+	if _, err := binarySpec("https://example.com/"); err == nil {
+		t.Fatal("binarySpec phải lỗi khi URL không có tên file")
 	}
 }
 
@@ -74,4 +77,36 @@ func TestAppStatus(t *testing.T) {
 	if got := appStatus(app); got != "đã cài" {
 		t.Fatalf("status = %q", got)
 	}
+}
+
+func TestAppStatusPython(t *testing.T) {
+	dir := t.TempDir()
+	app := core.App{
+		AppSpec: core.AppSpec{ID: "demo", Runtime: "python", Entry: []string{"python", "main.py"}},
+		Dir:     dir,
+	}
+	if got := appStatus(app); got != "chưa cài" {
+		t.Fatalf("status = %q", got)
+	}
+
+	venvPython, err := venvPythonForTest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(venvPython), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(venvPython, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := appStatus(app); got != "đã cài" {
+		t.Fatalf("status = %q", got)
+	}
+}
+
+func venvPythonForTest(appDir string) (string, error) {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(appDir, "env", "Scripts", "python.exe"), nil
+	}
+	return filepath.Join(appDir, "env", "bin", "python"), nil
 }
