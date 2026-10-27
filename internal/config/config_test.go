@@ -75,11 +75,15 @@ func TestEnsureInit(t *testing.T) {
 	}
 	movies := strings.Index(string(toolsData), `id = "movies"`)
 	webmy := strings.Index(string(toolsData), `id = "webmy"`)
-	if movies < 0 || webmy < 0 {
+	dl := strings.Index(string(toolsData), `id = "dl"`)
+	if movies < 0 || webmy < 0 || dl < 0 {
 		t.Fatalf("tools.toml missing default tools:\n%s", toolsData)
 	}
-	if movies > webmy {
+	if movies > webmy || webmy > dl {
 		t.Errorf("default tools are not in declaration order")
+	}
+	if !strings.Contains(string(toolsData), `"{out}/%(title)s.%(ext)s"`) {
+		t.Errorf("dl tool is missing the yt-dlp output template:\n%s", toolsData)
 	}
 
 	matches, err := filepath.Glob(filepath.Join(dir, "*.tmp"))

@@ -53,6 +53,9 @@ func doctorChecks(ctx context.Context) []core.Check {
 			{command: "python3", args: []string{"--version"}},
 			{command: "python", args: []string{"--version"}},
 		}, "Cài Python 3.11+ tại https://www.python.org/downloads/ và chọn \"Add python.exe to PATH\"."),
+		checkCommand(ctx, "ffmpeg", []doctorCandidate{
+			{command: "ffmpeg", args: []string{"-version"}},
+		}, "Cài ffmpeg để ghép video/audio; tải tại https://ffmpeg.org/download.html rồi thêm vào PATH."),
 	}
 }
 

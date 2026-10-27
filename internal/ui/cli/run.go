@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -48,6 +47,16 @@ func newRunCmd() *cobra.Command {
 				return fmt.Errorf("tool %q thiếu app", tool.ID)
 			}
 
+			params, rest, err := parseToolArgs(tool, args[1:])
+			if err != nil {
+				return err
+			}
+			runArgs, err := runner.ExpandArgs(tool.Args, params)
+			if err != nil {
+				return fmt.Errorf("tool %q: %w", tool.ID, err)
+			}
+			runArgs = append(runArgs, rest...)
+
 			mgr, err := newAppManager()
 			if err != nil {
 				return err
@@ -58,8 +67,6 @@ func newRunCmd() *cobra.Command {
 			}
 			registry.ApplyLifecycle(tool, app)
 
-			runArgs := append([]string{}, tool.Args...)
-			runArgs = append(runArgs, args[1:]...)
 			return runApp(cmd, mgr, app, runArgs, tool.ID, tool.Lifecycle, false)
 		},
 	}
@@ -121,19 +128,57 @@ func runApp(cmd *cobra.Command, mgr *appmgr.Manager, app *core.App, args []strin
 	}
 	defer logFile.Close()
 
-	var mu sync.Mutex
-	process.Stdout = &lockedWriter{mu: &mu, w: io.MultiWriter(cmd.OutOrStdout(), logFile)}
-	process.Stderr = &lockedWriter{mu: &mu, w: io.MultiWriter(cmd.ErrOrStderr(), logFile)}
 	process.Stdin = cmd.InOrStdin()
-
-	if err := process.Run(); err != nil {
+	if err := runForeground(cmd, process, app.ID, logFile); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return fmt.Errorf("app %q thoát với mã %d", app.ID, exitErr.ExitCode())
 		}
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
 		return fmt.Errorf("chạy app %q: %w", app.ID, err)
 	}
 	return nil
+}
+
+// runForeground chạy app ở foreground, in từng Event ra terminal và ghi toàn bộ vào file log.
+func runForeground(cmd *cobra.Command, process *exec.Cmd, runID string, logFile *os.File) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	events := make(chan core.Event, 64)
+	done := make(chan error, 1)
+	go func() {
+		done <- runner.Run(ctx, process, runID, events)
+		close(events)
+	}()
+
+	var writeErr error
+	writeLine := func(w io.Writer, text string) {
+		if w == nil {
+			return
+		}
+		if _, err := fmt.Fprintln(w, text); err != nil && writeErr == nil {
+			writeErr = err
+		}
+	}
+
+	for event := range events {
+		if event.Kind == "error" {
+			writeLine(cmd.ErrOrStderr(), event.Text)
+		} else {
+			writeLine(cmd.OutOrStdout(), event.Text)
+		}
+		writeLine(logFile, event.Text)
+	}
+
+	if err := <-done; err != nil {
+		return err
+	}
+	return writeErr
 }
 
 func isDetached(lifecycle string, app *core.App) bool {
@@ -312,15 +357,4 @@ func readAnswer(r io.Reader) (string, error) {
 			return "", fmt.Errorf("đọc câu trả lời: %w", err)
 		}
 	}
-}
-
-type lockedWriter struct {
-	mu *sync.Mutex
-	w  io.Writer
-}
-
-func (w *lockedWriter) Write(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.w.Write(p)
 }

@@ -201,4 +201,22 @@ name = "webmy"
 kind = "url"
 target = "https://webmy-8gf.pages.dev/"
 tags = ["web"]
+
+[[tool]]
+id = "dl"
+name = "Tải video"
+kind = "app"
+app = "yt-dlp"
+args = ["{url}", "--newline", "--no-colors", "-o", "{out}/%(title)s.%(ext)s"]
+tags = ["media"]
+
+  [[tool.param]]
+  name = "url"
+  type = "string"
+  required = true
+
+  [[tool.param]]
+  name = "out"
+  type = "path"
+  default = "~/Downloads"
 `
