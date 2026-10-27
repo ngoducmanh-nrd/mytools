@@ -1,0 +1,13 @@
+schema_version = 1
+
+[[tool]]
+id = "movies"
+name = "Movie Tracker"
+kind = "url"
+target = "https://example.com/"
+
+[[tool]]
+id = "movies"
+name = "Bản trùng"
+kind = "url"
+target = "https://example.org/"

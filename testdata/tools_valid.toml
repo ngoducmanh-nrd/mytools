@@ -1,0 +1,67 @@
+schema_version = 1
+
+[[tool]]
+id = "movies"
+name = "Movie Tracker"
+kind = "url"
+target = "https://movie-tracker-v2-jade.vercel.app/"
+tags = ["web", "phim"]
+
+[[tool]]
+id = "webmy"
+name = "webmy"
+kind = "url"
+target = "https://webmy-8gf.pages.dev/"
+tags = ["web"]
+
+[[tool]]
+id = "dl"
+name = "Tải video"
+kind = "app"
+app = "yt-dlp"
+args = ["{url}", "-o", "{out}/%(title)s.%(ext)s"]
+tags = ["media"]
+
+  [[tool.param]]
+  name = "url"
+  type = "string"
+  required = true
+
+  [[tool.param]]
+  name = "out"
+  type = "path"
+  default = "~/Downloads"
+
+  [[tool.param]]
+  name = "audio_only"
+  type = "bool"
+  default = false
+
+  [[tool.param]]
+  name = "quality"
+  type = "enum"
+  choices = ["best", "1080", "720"]
+  default = "best"
+
+[[tool]]
+id = "hash"
+name = "Tính hash file"
+kind = "process"
+command = "certutil"
+args = ["-hashfile", "{file}", "SHA256"]
+tags = ["file"]
+
+  [[tool.param]]
+  name = "file"
+  type = "path"
+  required = true
+
+  [[tool.param]]
+  name = "retries"
+  type = "int"
+  default = 3
+
+[[tool]]
+id = "native-demo"
+name = "Native demo"
+kind = "native"

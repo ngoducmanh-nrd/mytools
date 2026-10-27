@@ -1,0 +1,6 @@
+schema_version = 1
+
+[[tool]]
+id = "bad"
+name = "Sai kind"
+kind = "xyz"

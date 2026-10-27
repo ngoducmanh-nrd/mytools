@@ -1,0 +1,11 @@
+schema_version = 1
+
+[[tool]]
+id = "video"
+name = "Video"
+kind = "process"
+command = "ffmpeg"
+
+  [[tool.param]]
+  name = "quality"
+  type = "enum"
