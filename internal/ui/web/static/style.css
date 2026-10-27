@@ -19,7 +19,7 @@ body {
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
   line-height: 1.4;
   /* Khóa chiều cao bằng đúng màn hình, không cho cuộn toàn trang */
-  height: 100vh; 
+  height: 100vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -45,22 +45,31 @@ header .subtitle {
   font-size: 0.85rem;
 }
 
-/* Main Layout: Khóa chiều cao phần còn lại, chia 2 cột */
+/* Main Layout: 3 cột (Tools | Install | Chi tiết & Run), khóa chiều cao */
 main {
   display: grid;
-  grid-template-columns: minmax(300px, 380px) 1fr;
+  grid-template-columns: 250px 350px 1fr;
   gap: 1rem;
   padding: 0.75rem 1rem;
   flex: 1;
   overflow: hidden; /* Cấm cuộn ở main */
 }
 
-@media (max-width: 900px) {
-  main { grid-template-columns: 1fr; }
+@media (max-width: 1000px) {
+  main {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  #tools, #install, #detail {
+    height: auto;
+    min-height: 240px;
+    overflow: visible;
+  }
+  #detail { min-height: 320px; }
 }
 
 /* Cho phép cuộn ĐỘC LẬP bên trong từng cột nếu nội dung quá dài */
-#tools, #runs {
+#tools, #install, #detail {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -80,13 +89,105 @@ h2 {
   padding-bottom: 4px;
 }
 
+.col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 2;
+  padding-bottom: 4px;
+}
+
+.col-head h2 { position: static; margin: 0; padding: 0; }
+
+/* Nút [+] thêm tool ở cột Tools */
+#add-tool {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#add-tool:hover { background: var(--accent); color: #fff; }
+
 .tool-grid, .run-grid {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
 
-/* Ép thẻ Tool gọn lại */
+/* Mục tool trong cột trái: bấm để chọn, ✕ để xóa */
+.tool-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.55rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tool-item:hover { border-color: var(--accent); }
+.tool-item.selected { border-color: var(--accent); background: #1d2536; }
+
+.tool-item .tool-kind {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.tool-item .remove-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0 0.15rem;
+  flex-shrink: 0;
+}
+
+.tool-item .remove-btn:hover { color: var(--fail); }
+
+/* Ô nhập nguồn cài đặt ở cột giữa */
+#install textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  padding: 0.4rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+#install textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Log cài đặt chiếm phần còn lại của cột giữa */
+#install-log {
+  flex: 1;
+  min-height: 60px;
+  max-height: none;
+  margin-top: 0.6rem;
+}
+
+/* Thẻ chi tiết tool ở cột phải */
 .tool-card, .run-card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -113,6 +214,11 @@ h2 {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
+}
+
+.detail-empty {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 /* Dàn ngang Label và Input (Rất quan trọng để tiết kiệm không gian) */

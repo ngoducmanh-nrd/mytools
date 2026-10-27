@@ -110,6 +110,44 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+type installRequest struct {
+	Source string `json:"source"`
+}
+
+// handleAppAdd nhận nguồn cài đặt, trả ngay run_id để client theo dõi log
+// cài đặt qua /api/events như một lần chạy thường.
+func (s *Server) handleAppAdd(w http.ResponseWriter, r *http.Request) {
+	var req installRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("JSON không hợp lệ: %w", err))
+		return
+	}
+
+	runID, err := s.runner.InstallTool(r.Context(), req.Source)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"run_id": runID})
+}
+
+type removeRequest struct {
+	ID string `json:"id"`
+}
+
+func (s *Server) handleAppRemove(w http.ResponseWriter, r *http.Request) {
+	var req removeRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("JSON không hợp lệ: %w", err))
+		return
+	}
+	if err := s.runner.RemoveTool(req.ID); err != nil {
+		writeAPIError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // handleEvents phát SSE: phát lại lịch sử rồi chuyển event mới cho tới khi
 // client ngắt kết nối (khi đó chỉ hủy đăng ký, tiến trình vẫn chạy tiếp).
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {

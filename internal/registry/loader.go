@@ -52,13 +52,16 @@ func Load(path string) ([]core.Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("đọc %s: %w", path, err)
 	}
+	return parse(data, filepath.Base(path))
+}
 
+func parse(data []byte, file string) ([]core.Tool, error) {
 	var doc toolsDocument
 	if err := toml.Unmarshal(data, &doc); err != nil {
-		return nil, decodeError(filepath.Base(path), err)
+		return nil, decodeError(file, err)
 	}
 
-	errs := validateDocument(&doc, indexSource(data), filepath.Base(path))
+	errs := validateDocument(&doc, indexSource(data), file)
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}

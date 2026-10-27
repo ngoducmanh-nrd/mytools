@@ -23,12 +23,16 @@ type fakeRun struct {
 }
 
 type fakeRunner struct {
-	mu       sync.Mutex
-	tools    []core.Tool
-	runs     map[string]*fakeRun
-	answers  map[string][]string
-	toolErr  error
-	runCalls int
+	mu             sync.Mutex
+	tools          []core.Tool
+	runs           map[string]*fakeRun
+	answers        map[string][]string
+	toolErr        error
+	runCalls       int
+	installCalls   int
+	installSources []string
+	installErr     error
+	removedIDs     []string
 }
 
 func newFakeRunner() *fakeRunner {
@@ -110,6 +114,26 @@ func (f *fakeRunner) Answer(runID, answer string) error {
 		return fmt.Errorf("không có lần chạy %q", runID)
 	}
 	f.answers[runID] = append(f.answers[runID], answer)
+	return nil
+}
+
+func (f *fakeRunner) InstallTool(ctx context.Context, source string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.installErr != nil {
+		return "", f.installErr
+	}
+	f.installCalls++
+	f.installSources = append(f.installSources, source)
+	runID := fmt.Sprintf("install-%d", f.installCalls)
+	f.runs[runID] = &fakeRun{subs: make(map[chan core.Event]struct{})}
+	return runID, nil
+}
+
+func (f *fakeRunner) RemoveTool(id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removedIDs = append(f.removedIDs, id)
 	return nil
 }
 
@@ -490,6 +514,122 @@ func TestEventsUnknownRun(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestAppAddEndpoint(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+	fake := s.runner.(*fakeRunner)
+
+	post := func(body string, withToken bool) (*http.Response, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/app/add", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if withToken {
+			req.Header.Set("X-MT-Token", s.Token())
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var parsed map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&parsed)
+		return resp, parsed
+	}
+
+	resp, parsed := post(`{"source":"./testdata/mock-tools/cli-tool"}`, true)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add: %d %v", resp.StatusCode, parsed)
+	}
+	if parsed["run_id"] != "install-1" {
+		t.Errorf("run_id = %v, want install-1", parsed["run_id"])
+	}
+	fake.mu.Lock()
+	sources := append([]string(nil), fake.installSources...)
+	fake.mu.Unlock()
+	if len(sources) != 1 || sources[0] != "./testdata/mock-tools/cli-tool" {
+		t.Errorf("installSources = %v", sources)
+	}
+
+	if resp, _ := post(`{"source":""}`, false); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("add thiếu token: %d", resp.StatusCode)
+	}
+	if resp, _ := post(`không phải JSON`, true); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("add JSON hỏng: %d", resp.StatusCode)
+	}
+}
+
+func TestAppAddEndpointInstallError(t *testing.T) {
+	fake := newFakeRunner()
+	fake.installErr = fmt.Errorf("app %q đã tồn tại", "cli-tool")
+	s, ts := newTestServer(t, fake)
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/app/add",
+		strings.NewReader(`{"source":"./testdata/mock-tools/cli-tool"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-MT-Token", s.Token())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	var parsed map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&parsed)
+	if parsed["error"] == nil || !strings.Contains(parsed["error"].(string), "đã tồn tại") {
+		t.Errorf("error = %v", parsed["error"])
+	}
+}
+
+func TestAppRemoveEndpoint(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+	fake := s.runner.(*fakeRunner)
+
+	del := func(body string, token string) (*http.Response, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodDelete, ts.URL+"/api/app/remove", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "" {
+			req.Header.Set("X-MT-Token", token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var parsed map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&parsed)
+		return resp, parsed
+	}
+
+	resp, parsed := del(`{"id":"movies"}`, s.Token())
+	if resp.StatusCode != http.StatusOK || parsed["ok"] != true {
+		t.Fatalf("remove: %d %v", resp.StatusCode, parsed)
+	}
+	fake.mu.Lock()
+	removed := append([]string(nil), fake.removedIDs...)
+	fake.mu.Unlock()
+	if len(removed) != 1 || removed[0] != "movies" {
+		t.Errorf("removedIDs = %v", removed)
+	}
+
+	if resp, _ := del(`{"id":"movies"}`, ""); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("remove thiếu token: %d", resp.StatusCode)
+	}
+	if resp, _ := del(`{"id":"movies"}`, "sai-token"); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("remove sai token: %d", resp.StatusCode)
+	}
+	if resp, _ := del(`không phải JSON`, s.Token()); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("remove JSON hỏng: %d", resp.StatusCode)
 	}
 }
 

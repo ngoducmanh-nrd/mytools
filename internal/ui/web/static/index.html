@@ -16,12 +16,24 @@
 
   <main>
     <section id="tools">
-      <h2>Tool</h2>
+      <div class="col-head">
+        <h2>Tools</h2>
+        <button id="add-tool" title="Thêm tool">+</button>
+      </div>
       <div id="tool-list" class="tool-grid"></div>
     </section>
 
-    <section id="runs">
-      <h2>Đang chạy</h2>
+    <section id="install">
+      <h2>Cài đặt Tool mới</h2>
+      <textarea id="install-source" spellcheck="false"
+        placeholder="./testdata/mock-tools/cli-tool&#10;https://…/tool.exe&#10;https://github.com/…/repo.git"></textarea>
+      <button id="install-btn" class="btn">Cài đặt</button>
+      <div id="install-log" class="log" hidden></div>
+    </section>
+
+    <section id="detail">
+      <h2>Chi tiết &amp; Run</h2>
+      <div id="detail-body"></div>
       <div id="run-list"></div>
     </section>
   </main>

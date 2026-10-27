@@ -25,6 +25,8 @@ type ToolRunner interface {
 	RunTool(ctx context.Context, id string, params map[string]string) (string, error)
 	Subscribe(runID string) (<-chan core.Event, func(), error)
 	Answer(runID, answer string) error
+	InstallTool(ctx context.Context, source string) (string, error)
+	RemoveTool(id string) error
 }
 
 // Server chỉ lắng nghe 127.0.0.1 và sinh token ngẫu nhiên mỗi lần khởi động;
@@ -131,11 +133,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/run", s.handleRun)
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/answer", s.handleAnswer)
+	mux.HandleFunc("/api/app/add", s.handleAppAdd)
+	mux.HandleFunc("/api/app/remove", s.handleAppRemove)
 	return s.security(mux)
 }
 
 // security chặn: Host không phải 127.0.0.1/localhost đúng port, Origin không
-// khớp Host, POST thiếu hoặc sai X-MT-Token.
+// khớp Host, POST/DELETE thiếu hoặc sai X-MT-Token.
 func (s *Server) security(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.validHost(r.Host) {
@@ -146,7 +150,7 @@ func (s *Server) security(next http.Handler) http.Handler {
 			http.Error(w, "từ chối: origin không khớp", http.StatusForbidden)
 			return
 		}
-		if r.Method == http.MethodPost && r.Header.Get("X-MT-Token") != s.token {
+		if (r.Method == http.MethodPost || r.Method == http.MethodDelete) && r.Header.Get("X-MT-Token") != s.token {
 			http.Error(w, "từ chối: thiếu hoặc sai token", http.StatusForbidden)
 			return
 		}

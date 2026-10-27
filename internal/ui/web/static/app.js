@@ -3,9 +3,16 @@
 const TOKEN = document.querySelector('meta[name="mt-token"]').content;
 
 const toolList = document.getElementById("tool-list");
+const detailBody = document.getElementById("detail-body");
 const runList = document.getElementById("run-list");
+const installSource = document.getElementById("install-source");
+const installButton = document.getElementById("install-btn");
+const installLog = document.getElementById("install-log");
+const addToolButton = document.getElementById("add-tool");
 const notice = document.getElementById("notice");
 
+let tools = [];
+let selectedID = null;
 let noticeTimer = null;
 
 function showNotice(message) {
@@ -17,11 +24,10 @@ function showNotice(message) {
   }, 5000);
 }
 
-async function api(path, body) {
+async function api(path, body, method = "POST") {
   const headers = { "X-MT-Token": TOKEN };
-  let options = { headers };
+  const options = { method, headers };
   if (body !== undefined) {
-    options.method = "POST";
     headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
   }
@@ -95,7 +101,45 @@ function paramInput(param) {
   return { wrap, input };
 }
 
-function renderTool(tool) {
+function renderToolList() {
+  toolList.replaceChildren();
+  for (const tool of tools) {
+    const item = el("div", "tool-item", tool.name);
+    item.dataset.id = tool.id;
+    item.title = tool.name;
+    if (tool.id === selectedID) item.classList.add("selected");
+
+    item.appendChild(el("span", "tool-kind", tool.kind));
+
+    const removeButton = el("button", "remove-btn", "✕");
+    removeButton.title = "Xóa tool " + tool.id;
+    removeButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      removeTool(tool);
+    });
+    item.appendChild(removeButton);
+
+    item.addEventListener("click", () => selectTool(tool.id));
+    toolList.appendChild(item);
+  }
+}
+
+function selectTool(id) {
+  selectedID = id;
+  for (const item of toolList.children) {
+    item.classList.toggle("selected", item.dataset.id === id);
+  }
+  const tool = tools.find((t) => t.id === id);
+  renderDetail(tool);
+}
+
+function renderDetail(tool) {
+  detailBody.replaceChildren();
+  if (!tool) {
+    detailBody.appendChild(el("p", "detail-empty", "Chọn một tool ở cột trái để xem chi tiết."));
+    return;
+  }
+
   const card = el("div", "tool-card");
   card.appendChild(el("h3", null, tool.name));
 
@@ -116,14 +160,13 @@ function renderTool(tool) {
     });
     card.appendChild(open);
     card.appendChild(errorLine);
-    toolList.appendChild(card);
+    detailBody.appendChild(card);
     return;
   }
 
   if (tool.kind !== "app") {
-    const unsupported = el("p", "card-error", `Kind "${tool.kind}" chưa hỗ trợ trên web.`);
-    card.appendChild(unsupported);
-    toolList.appendChild(card);
+    card.appendChild(el("p", "card-error", `Kind "${tool.kind}" chưa hỗ trợ trên web.`));
+    detailBody.appendChild(card);
     return;
   }
 
@@ -159,7 +202,7 @@ function renderTool(tool) {
 
   card.appendChild(runButton);
   card.appendChild(errorLine);
-  toolList.appendChild(card);
+  detailBody.appendChild(card);
 }
 
 function addRunPanel(tool, runID) {
@@ -275,16 +318,114 @@ function addRunPanel(tool, runID) {
   };
 }
 
+function appendInstall(text, className) {
+  installLog.appendChild(el("span", className, text));
+  installLog.scrollTop = installLog.scrollHeight;
+}
+
+async function runInstall() {
+  const source = installSource.value.trim();
+  if (!source) {
+    showNotice("Nhập nguồn cài đặt trước.");
+    installSource.focus();
+    return;
+  }
+
+  installButton.disabled = true;
+  installSource.disabled = true;
+  installLog.hidden = false;
+  installLog.replaceChildren();
+  appendInstall("Đang gửi yêu cầu cài đặt " + source + "…\n");
+
+  let runID;
+  try {
+    const data = await api("/api/app/add", { source });
+    runID = data.run_id;
+  } catch (err) {
+    appendInstall("Lỗi: " + err.message + "\n", "line-error");
+    installButton.disabled = false;
+    installSource.disabled = false;
+    return;
+  }
+
+  const eventSource = new EventSource("/api/events?runID=" + encodeURIComponent(runID));
+  eventSource.onmessage = (message) => {
+    const event = JSON.parse(message.data);
+    switch (event.kind) {
+      case "progress":
+        appendInstall(event.text + "\n", "line-progress");
+        break;
+      case "error":
+        appendInstall(event.text + "\n", "line-error");
+        break;
+      case "result": {
+        const ok = !event.data || event.data.ok !== false;
+        appendInstall(event.text + "\n", ok ? "line-result ok" : "line-result fail");
+        eventSource.close();
+        installButton.disabled = false;
+        installSource.disabled = false;
+        if (ok) {
+          const installedID = event.data && event.data.id;
+          showNotice(installedID ? `Đã cài tool "${installedID}".` : "Đã cài tool.");
+          loadTools().then(() => {
+            if (installedID) selectTool(installedID);
+          });
+        }
+        break;
+      }
+      default:
+        appendInstall(event.text + "\n", "");
+        break;
+    }
+  };
+  eventSource.onerror = () => {
+    appendInstall("(mất kết nối tới máy chủ)\n", "line-error");
+  };
+}
+
+async function removeTool(tool) {
+  if (!window.confirm(`Xóa tool "${tool.name}"?`)) return;
+  try {
+    await api("/api/app/remove", { id: tool.id }, "DELETE");
+    if (selectedID === tool.id) {
+      selectedID = null;
+      renderDetail(null);
+    }
+    showNotice(`Đã xóa tool "${tool.name}".`);
+    await loadTools();
+  } catch (err) {
+    showNotice("Xóa thất bại: " + err.message);
+  }
+}
+
 async function loadTools() {
   try {
-    const tools = await api("/api/tools");
-    toolList.replaceChildren();
-    for (const tool of tools) {
-      renderTool(tool);
+    tools = await api("/api/tools", undefined, "GET");
+    if (selectedID && !tools.some((tool) => tool.id === selectedID)) {
+      selectedID = null;
+    }
+    renderToolList();
+    if (selectedID) {
+      selectTool(selectedID);
+    } else {
+      renderDetail(null);
     }
   } catch (err) {
     showNotice("Không tải được danh sách tool: " + err.message);
   }
 }
+
+addToolButton.addEventListener("click", () => {
+  installSource.focus();
+});
+
+installButton.addEventListener("click", runInstall);
+
+installSource.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    runInstall();
+  }
+});
 
 loadTools();

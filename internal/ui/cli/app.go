@@ -2,11 +2,8 @@ package cli
 
 import (
 	"fmt"
-	"net/url"
 	"os"
-	"path"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -69,14 +66,14 @@ func newAppAddCmd() *cobra.Command {
 			if spec, ok := appmgr.BuiltinSpec(arg); ok {
 				return addBinaryApp(cmd, mgr, spec)
 			}
-			if rawURL, ok := directBinaryURL(arg); ok {
-				spec, err := binarySpec(rawURL)
+			if rawURL, ok := appmgr.DirectBinaryURL(arg); ok {
+				spec, err := appmgr.BinarySpec(rawURL)
 				if err != nil {
 					return err
 				}
 				return addBinaryApp(cmd, mgr, spec)
 			}
-			if isLocalToolDir(arg) {
+			if appmgr.IsLocalToolDir(arg) {
 				return addLocalApp(cmd, mgr, arg)
 			}
 			return addGitApp(cmd, mgr, arg, ref)
@@ -114,15 +111,6 @@ func addBinaryApp(cmd *cobra.Command, mgr *appmgr.Manager, spec core.AppSpec) er
 		_, err = fmt.Fprintf(out, "sha256: %s\n", installed.Sha256)
 	}
 	return err
-}
-
-func isLocalToolDir(arg string) bool {
-	info, err := os.Stat(arg)
-	if err != nil || !info.IsDir() {
-		return false
-	}
-	_, err = os.Stat(filepath.Join(arg, "app.toml"))
-	return err == nil
 }
 
 func addLocalApp(cmd *cobra.Command, mgr *appmgr.Manager, srcDir string) error {
@@ -332,62 +320,4 @@ func appStatus(app core.App) string {
 	default:
 		return "đã cài"
 	}
-}
-
-func directBinaryURL(arg string) (string, bool) {
-	parsed, err := url.Parse(arg)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return "", false
-	}
-	name := path.Base(parsed.Path)
-	if name == "." || name == "/" || name == "" {
-		return "", false
-	}
-	ext := path.Ext(name)
-	if ext == "" || ext == "." || strings.EqualFold(ext, ".git") {
-		return "", false
-	}
-	return arg, true
-}
-
-func binarySpec(rawURL string) (core.AppSpec, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return core.AppSpec{}, fmt.Errorf("URL không hợp lệ: %w", err)
-	}
-	name := path.Base(parsed.Path)
-	if name == "." || name == "/" || name == "" {
-		return core.AppSpec{}, fmt.Errorf("URL %q phải có tên file", rawURL)
-	}
-	ext := path.Ext(name)
-	if ext == "" || ext == "." {
-		return core.AppSpec{}, fmt.Errorf("URL %q phải trỏ trực tiếp tới file binary (có phần mở rộng)", rawURL)
-	}
-
-	id := sanitizeAppID(strings.TrimSuffix(name, ext))
-	if id == "" {
-		return core.AppSpec{}, fmt.Errorf("không suy ra được id app từ tên file %q", name)
-	}
-
-	return core.AppSpec{
-		SchemaVersion: 1,
-		ID:            id,
-		Runtime:       "binary",
-		Download:      rawURL,
-		Entry:         []string{name},
-	}, nil
-}
-
-func sanitizeAppID(name string) string {
-	name = strings.ToLower(name)
-	var builder strings.Builder
-	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
-			builder.WriteRune(r)
-		default:
-			builder.WriteRune('-')
-		}
-	}
-	return strings.Trim(builder.String(), "-_")
 }
