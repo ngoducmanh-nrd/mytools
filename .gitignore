@@ -1,5 +1,5 @@
 mt.exe
-mt
+/mt
 *.exe
 *.test
 *.out
