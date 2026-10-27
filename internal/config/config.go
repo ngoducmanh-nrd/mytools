@@ -68,6 +68,9 @@ func ensureInit(dir string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("tạo thư mục %s: %w", dir, err)
 	}
+	if err := os.MkdirAll(filepath.Join(dir, "apps"), 0o700); err != nil {
+		return fmt.Errorf("tạo thư mục apps trong %s: %w", dir, err)
+	}
 	if err := ensureFile(filepath.Join(dir, configFile), defaultConfigTOML); err != nil {
 		return err
 	}
@@ -182,7 +185,7 @@ web_port = 7878
 python = "auto"
 keep_logs_days = 14
 
-# Để trống để tắt kiểm tra cập nhật.
+# Để trống dùng GitHub Releases chính thức của mt; đổi URL để trỏ nơi khác.
 update_check_url = ""
 `
 

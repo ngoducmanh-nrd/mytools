@@ -58,6 +58,14 @@ func TestEnsureInit(t *testing.T) {
 	configPath := filepath.Join(dir, "config.toml")
 	toolsPath := filepath.Join(dir, "tools.toml")
 
+	appsInfo, err := os.Stat(filepath.Join(dir, "apps"))
+	if err != nil {
+		t.Fatalf("thư mục apps chưa được tạo: %v", err)
+	}
+	if !appsInfo.IsDir() {
+		t.Fatalf("%s không phải thư mục", filepath.Join(dir, "apps"))
+	}
+
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)

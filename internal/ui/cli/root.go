@@ -32,7 +32,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
-	root.AddCommand(newVersionCmd(), newListCmd(), newOpenCmd(), newRunCmd(), newAppCmd(), newDoctorCmd(), newPsCmd(), newStopCmd(), newRestartCmd(), newLogsCmd(), newWebCmd())
+	root.AddCommand(newVersionCmd(), newListCmd(), newOpenCmd(), newRunCmd(), newAppCmd(), newDoctorCmd(), newPsCmd(), newStopCmd(), newRestartCmd(), newLogsCmd(), newWebCmd(), newSelfUpdateCmd())
 	return root
 }
 
