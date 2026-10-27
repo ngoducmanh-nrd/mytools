@@ -110,3 +110,34 @@ func venvPythonForTest(appDir string) (string, error) {
 	}
 	return filepath.Join(appDir, "env", "bin", "python"), nil
 }
+
+func TestIsLocalToolDir(t *testing.T) {
+	dir := t.TempDir()
+	withAppTOML := filepath.Join(dir, "có app.toml")
+	if err := os.MkdirAll(withAppTOML, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(withAppTOML, "app.toml"), []byte("schema_version = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join(dir, "trống")
+	if err := os.MkdirAll(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		arg  string
+		want bool
+	}{
+		{withAppTOML, true},
+		{empty, false},
+		{filepath.Join(dir, "không tồn tại"), false},
+		{"https://example.com/repo", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := isLocalToolDir(tc.arg); got != tc.want {
+			t.Fatalf("isLocalToolDir(%q) = %v, muốn %v", tc.arg, got, tc.want)
+		}
+	}
+}

@@ -114,6 +114,7 @@ func PythonCommand(ctx context.Context, app core.App, args []string) (*exec.Cmd,
 	commandArgs = append(commandArgs, args...)
 	cmd := exec.CommandContext(ctx, venvPython, commandArgs...)
 	cmd.Dir = app.Dir
+	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
 	return cmd, nil
 }
 

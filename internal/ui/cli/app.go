@@ -76,6 +76,9 @@ func newAppAddCmd() *cobra.Command {
 				}
 				return addBinaryApp(cmd, mgr, spec)
 			}
+			if isLocalToolDir(arg) {
+				return addLocalApp(cmd, mgr, arg)
+			}
 			return addGitApp(cmd, mgr, arg, ref)
 		},
 	}
@@ -101,6 +104,70 @@ func addBinaryApp(cmd *cobra.Command, mgr *appmgr.Manager, spec core.AppSpec) er
 	}
 
 	installed, err := mgr.LoadApp(spec.ID)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "Đã cài app %q vào %s\n", installed.ID, installed.Dir); err != nil {
+		return err
+	}
+	if installed.Sha256 != "" {
+		_, err = fmt.Fprintf(out, "sha256: %s\n", installed.Sha256)
+	}
+	return err
+}
+
+func isLocalToolDir(arg string) bool {
+	info, err := os.Stat(arg)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(arg, "app.toml"))
+	return err == nil
+}
+
+func addLocalApp(cmd *cobra.Command, mgr *appmgr.Manager, srcDir string) error {
+	out := cmd.OutOrStdout()
+	if _, err := fmt.Fprintf(out, "Đang cài từ %s...\n", srcDir); err != nil {
+		return err
+	}
+
+	app, err := mgr.InstallLocal(srcDir)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "Đã cài app %q vào %s\n", app.ID, app.Dir); err != nil {
+		return err
+	}
+
+	var installErr error
+	switch app.Runtime {
+	case "binary":
+		if _, err := fmt.Fprintf(out, "Đang tải %s...\n", app.Download); err != nil {
+			return err
+		}
+		installErr = runner.Install(cmd.Context(), *app, nil)
+	case "python":
+		if _, err := fmt.Fprintf(out, "Đang tạo môi trường Python...\n"); err != nil {
+			return err
+		}
+		installErr = runner.InstallPython(cmd.Context(), *app, nil)
+	default:
+		installErr = fmt.Errorf("runtime %q chưa hỗ trợ", app.Runtime)
+	}
+	if installErr != nil {
+		hint := fmt.Sprintf("chạy \"mt app rebuild %s\"", app.ID)
+		if app.Runtime != "python" {
+			hint = fmt.Sprintf("xóa bằng \"mt app rm %s\" rồi thêm lại", app.ID)
+		}
+		return fmt.Errorf("%w\nApp %q đã được cài tại %s; sửa lỗi rồi %s.", installErr, app.ID, app.Dir, hint)
+	}
+
+	if app.Runtime == "python" {
+		_, err = fmt.Fprintf(out, "Đã cài app %q vào %s (env: %s)\n", app.ID, app.Dir, filepath.Join(app.Dir, "env"))
+		return err
+	}
+
+	installed, err := mgr.LoadApp(app.ID)
 	if err != nil {
 		return err
 	}

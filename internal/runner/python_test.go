@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -115,6 +116,9 @@ func TestPythonCommandRequiresVenv(t *testing.T) {
 	}
 	if len(cmd.Args) != 3 || cmd.Args[0] != venvPython || cmd.Args[1] != "main.py" || cmd.Args[2] != "--flag" {
 		t.Fatalf("cmd.Args = %v", cmd.Args)
+	}
+	if !slices.Contains(cmd.Env, "PYTHONIOENCODING=utf-8") {
+		t.Fatalf("cmd.Env thiếu PYTHONIOENCODING=utf-8: %v", cmd.Env)
 	}
 }
 

@@ -1,0 +1,5 @@
+schema_version = 1
+id = "gui-tool"
+runtime = "python"
+entry = ["python", "gui_tool.py"]
+gui = true

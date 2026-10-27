@@ -500,3 +500,96 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 	}
 	return string(output)
 }
+
+func TestValidateSpecPythonWithoutSource(t *testing.T) {
+	spec := core.AppSpec{
+		SchemaVersion: 1,
+		ID:            "demo",
+		Runtime:       "python",
+		Entry:         []string{"python", "app.py"},
+	}
+	if err := validateSpec(spec); err != nil {
+		t.Fatalf("python không cần source khi cài local: %v", err)
+	}
+}
+
+func TestInstallLocal(t *testing.T) {
+	srcDir := t.TempDir()
+	files := map[string]string{
+		"app.toml": `schema_version = 1
+id = "cli-tool"
+runtime = "python"
+entry = ["python", "cli_tool.py"]
+`,
+		"cli_tool.py":        "print('xin chào')\n",
+		"data/danh sách.txt": "1\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(srcDir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	dataDir := filepath.Join(t.TempDir(), "dữ liệu mt")
+	mgr := New(dataDir)
+	app, err := mgr.InstallLocal(srcDir)
+	if err != nil {
+		t.Fatalf("InstallLocal: %v", err)
+	}
+	if app.ID != "cli-tool" || app.Runtime != "python" || app.GUI {
+		t.Fatalf("app không đúng: %+v", app.AppSpec)
+	}
+
+	for name := range files {
+		if name == "app.toml" {
+			continue // app.toml được viết chuẩn hóa lại khi cài
+		}
+		path := filepath.Join(app.Dir, filepath.FromSlash(name))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("thiếu file %s trong app đã cài: %v", name, err)
+		}
+		if string(data) != files[name] {
+			t.Errorf("nội dung %s sai: %q", name, data)
+		}
+	}
+
+	loaded, err := mgr.LoadApp("cli-tool")
+	if err != nil {
+		t.Fatalf("LoadApp: %v", err)
+	}
+	if loaded.Source != "" {
+		t.Errorf("Source = %q, muốn rỗng", loaded.Source)
+	}
+
+	if _, err := mgr.InstallLocal(srcDir); err == nil || !strings.Contains(err.Error(), "đã tồn tại") {
+		t.Fatalf("cài lại phải báo đã tồn tại: %v", err)
+	}
+}
+
+func TestInstallLocalRejectsMissingAppTOML(t *testing.T) {
+	srcDir := t.TempDir()
+	_, err := New(t.TempDir()).InstallLocal(srcDir)
+	if err == nil || !strings.Contains(err.Error(), "app.toml") {
+		t.Fatalf("thiếu app.toml phải báo lỗi rõ: %v", err)
+	}
+}
+
+func TestInstallLocalRejectsBadID(t *testing.T) {
+	srcDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(srcDir, "app.toml"), []byte(`schema_version = 1
+id = "../ngoai"
+runtime = "python"
+entry = ["python", "app.py"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := New(t.TempDir()).InstallLocal(srcDir)
+	if err == nil || !strings.Contains(err.Error(), "id app") {
+		t.Fatalf("id nguy hiểm phải bị từ chối: %v", err)
+	}
+}

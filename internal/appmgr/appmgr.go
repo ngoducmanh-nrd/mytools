@@ -209,6 +209,111 @@ func (m *Manager) CloneGit(ctx context.Context, rawURL, ref string) (*core.App, 
 	return &core.App{AppSpec: *spec, Dir: dir}, nil
 }
 
+func (m *Manager) InstallLocal(srcDir string) (*core.App, error) {
+	if strings.TrimSpace(srcDir) == "" {
+		return nil, errors.New("đường dẫn thư mục tool không được để trống")
+	}
+	info, err := os.Lstat(srcDir)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("kiểm tra %s: %w", srcDir, err)
+	case info.Mode()&os.ModeSymlink != 0:
+		return nil, fmt.Errorf("từ chối cài %s: là liên kết", srcDir)
+	case !info.IsDir():
+		return nil, fmt.Errorf("%s không phải thư mục", srcDir)
+	}
+
+	spec, err := readAppSpec(filepath.Join(srcDir, appSpecName))
+	if err != nil {
+		if errors.Is(err, core.ErrAppConfigMissing) {
+			return nil, fmt.Errorf("%s: %w (thư mục tool cần có app.toml)", srcDir, err)
+		}
+		return nil, err
+	}
+	if err := validateSpec(*spec); err != nil {
+		return nil, fmt.Errorf("app.toml: %w", err)
+	}
+
+	dir, err := m.appDir(spec.ID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(dir); err == nil {
+		return nil, fmt.Errorf("app %q đã tồn tại", spec.ID)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("kiểm tra app %q: %w", spec.ID, err)
+	}
+	appsDir := filepath.Dir(dir)
+	if err := os.MkdirAll(appsDir, 0o700); err != nil {
+		return nil, fmt.Errorf("tạo thư mục app: %w", err)
+	}
+
+	staging, err := os.MkdirTemp(appsDir, ".copy-*")
+	if err != nil {
+		return nil, fmt.Errorf("tạo thư mục cài tạm: %w", err)
+	}
+	installed := false
+	defer func() {
+		if !installed {
+			_ = os.RemoveAll(staging)
+		}
+	}()
+
+	if err := copyTree(srcDir, staging); err != nil {
+		return nil, err
+	}
+	if err := writeAppSpec(staging, *spec); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(staging, dir); err != nil {
+		return nil, fmt.Errorf("đặt app %q vào %s: %w", spec.ID, dir, err)
+	}
+	installed = true
+	return &core.App{AppSpec: *spec, Dir: dir}, nil
+}
+
+func copyTree(src, dst string) error {
+	return filepath.Walk(src, func(path string, info fs.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == src {
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("từ chối sao chép %s: là liên kết", path)
+		}
+
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return fmt.Errorf("xác định đường dẫn tương đối của %s: %w", path, err)
+		}
+		target := filepath.Join(dst, rel)
+
+		if info.IsDir() {
+			if info.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			if err := os.Mkdir(target, info.Mode().Perm()); err != nil {
+				return fmt.Errorf("tạo thư mục %s: %w", target, err)
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("từ chối sao chép %s: không phải file thường", path)
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("đọc %s: %w", path, err)
+		}
+		if err := os.WriteFile(target, data, info.Mode().Perm()); err != nil {
+			return fmt.Errorf("ghi %s: %w", target, err)
+		}
+		return nil
+	})
+}
+
 func (m *Manager) HeadCommit(ctx context.Context, id string) (string, error) {
 	dir, err := m.existingAppDir(id)
 	if err != nil {
@@ -373,9 +478,6 @@ func validateSpec(spec core.AppSpec) error {
 			return fmt.Errorf("entry[0]: %w", err)
 		}
 	case "python":
-		if spec.Source == "" {
-			return errors.New(`source: thiếu trường bắt buộc "source"`)
-		}
 		if len(spec.Entry) < 2 || spec.Entry[0] != "python" {
 			return errors.New(`entry: runtime "python" cần dạng ["python", "<script>"]`)
 		}

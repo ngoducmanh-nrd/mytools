@@ -1,0 +1,4 @@
+schema_version = 1
+id = "cli-tool"
+runtime = "python"
+entry = ["python", "cli_tool.py"]
