@@ -131,6 +131,30 @@ func (s *Server) handleAppAdd(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"run_id": runID})
 }
 
+type manualInstallRequest struct {
+	Source string `json:"source"`
+	Name   string `json:"name"`
+	Entry  string `json:"entry"`
+	GUI    bool   `json:"gui"`
+}
+
+// handleAppInstallManual nhận thông tin để sinh app.toml cho repo git thiếu
+// file cấu hình; trả run_id để theo dõi log cài đặt qua /api/events.
+func (s *Server) handleAppInstallManual(w http.ResponseWriter, r *http.Request) {
+	var req manualInstallRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("JSON không hợp lệ: %w", err))
+		return
+	}
+
+	runID, err := s.runner.InstallManualTool(r.Context(), req.Source, req.Name, req.Entry, req.GUI)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"run_id": runID})
+}
+
 type removeRequest struct {
 	ID string `json:"id"`
 }

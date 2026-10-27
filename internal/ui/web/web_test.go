@@ -31,8 +31,14 @@ type fakeRunner struct {
 	runCalls       int
 	installCalls   int
 	installSources []string
+	manualCalls    []manualCall
 	installErr     error
 	removedIDs     []string
+}
+
+type manualCall struct {
+	source, name, entry string
+	gui                 bool
 }
 
 func newFakeRunner() *fakeRunner {
@@ -125,6 +131,19 @@ func (f *fakeRunner) InstallTool(ctx context.Context, source string) (string, er
 	}
 	f.installCalls++
 	f.installSources = append(f.installSources, source)
+	runID := fmt.Sprintf("install-%d", f.installCalls)
+	f.runs[runID] = &fakeRun{subs: make(map[chan core.Event]struct{})}
+	return runID, nil
+}
+
+func (f *fakeRunner) InstallManualTool(ctx context.Context, source, name, entry string, gui bool) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.installErr != nil {
+		return "", f.installErr
+	}
+	f.installCalls++
+	f.manualCalls = append(f.manualCalls, manualCall{source: source, name: name, entry: entry, gui: gui})
 	runID := fmt.Sprintf("install-%d", f.installCalls)
 	f.runs[runID] = &fakeRun{subs: make(map[chan core.Event]struct{})}
 	return runID, nil
@@ -584,6 +603,78 @@ func TestAppAddEndpointInstallError(t *testing.T) {
 	var parsed map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&parsed)
 	if parsed["error"] == nil || !strings.Contains(parsed["error"].(string), "đã tồn tại") {
+		t.Errorf("error = %v", parsed["error"])
+	}
+}
+
+func TestAppInstallManualEndpoint(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+	fake := s.runner.(*fakeRunner)
+
+	post := func(body string, withToken bool) (*http.Response, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/app/install-manual", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if withToken {
+			req.Header.Set("X-MT-Token", s.Token())
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var parsed map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&parsed)
+		return resp, parsed
+	}
+
+	resp, parsed := post(`{"source":"https://github.com/x/y.git","name":"Rea","entry":"python main.py","gui":true}`, true)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("install-manual: %d %v", resp.StatusCode, parsed)
+	}
+	if parsed["run_id"] != "install-1" {
+		t.Errorf("run_id = %v, want install-1", parsed["run_id"])
+	}
+	fake.mu.Lock()
+	calls := append([]manualCall(nil), fake.manualCalls...)
+	fake.mu.Unlock()
+	if len(calls) != 1 || calls[0].source != "https://github.com/x/y.git" || calls[0].name != "Rea" ||
+		calls[0].entry != "python main.py" || !calls[0].gui {
+		t.Errorf("manualCalls = %+v", calls)
+	}
+
+	if resp, _ := post(`{"source":"x","name":"Rea","entry":"python main.py"}`, false); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("install-manual thiếu token: %d", resp.StatusCode)
+	}
+	if resp, _ := post(`không phải JSON`, true); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("install-manual JSON hỏng: %d", resp.StatusCode)
+	}
+}
+
+func TestAppInstallManualEndpointError(t *testing.T) {
+	fake := newFakeRunner()
+	fake.installErr = fmt.Errorf("lệnh chạy phải bắt đầu bằng \"python\"")
+	s, ts := newTestServer(t, fake)
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/app/install-manual",
+		strings.NewReader(`{"source":"https://github.com/x/y.git","name":"Rea","entry":"main.py"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-MT-Token", s.Token())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	var parsed map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&parsed)
+	if parsed["error"] == nil || !strings.Contains(parsed["error"].(string), "python") {
 		t.Errorf("error = %v", parsed["error"])
 	}
 }

@@ -27,7 +27,24 @@
       <h2>Cài đặt Tool mới</h2>
       <textarea id="install-source" spellcheck="false"
         placeholder="./testdata/mock-tools/cli-tool&#10;https://…/tool.exe&#10;https://github.com/…/repo.git"></textarea>
+      <p id="install-hint">Dán link Git (có chứa app.toml), link file .exe, hoặc đường dẫn thư mục local.</p>
       <button id="install-btn" class="btn">Cài đặt</button>
+      <div id="install-status" hidden><span class="spinner"></span><span>Đang cài đặt…</span></div>
+      <form id="manual-form" hidden>
+        <p id="manual-hint">Repo không có app.toml — điền thông tin để mt tự tạo:</p>
+        <div class="manual-row">
+          <label for="manual-name">Tên hiển thị</label>
+          <input id="manual-name" type="text" placeholder="Ví dụ: Rea">
+        </div>
+        <div class="manual-row">
+          <label for="manual-entry">Lệnh chạy</label>
+          <input id="manual-entry" type="text" placeholder="python main.py">
+        </div>
+        <div class="manual-row manual-check">
+          <label><input id="manual-gui" type="checkbox"> Có giao diện GUI không?</label>
+        </div>
+        <button id="manual-btn" type="button" class="btn">Xác nhận tạo &amp; Cài đặt</button>
+      </form>
       <div id="install-log" class="log" hidden></div>
     </section>
 

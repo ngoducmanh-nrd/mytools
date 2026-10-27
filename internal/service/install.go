@@ -16,14 +16,49 @@ import (
 // InstallTool cài tool từ nguồn (id built-in, URL file binary, thư mục tool
 // cục bộ, hoặc git URL) và phát log tiến trình như một lần chạy thường.
 func (s *Service) InstallTool(ctx context.Context, source string) (string, error) {
+	if strings.TrimSpace(source) == "" {
+		return "", errors.New("thiếu nguồn cài đặt")
+	}
+	return s.startInstall(ctx, source, "", func(ctx context.Context, out chan<- core.Event) (*core.App, error) {
+		return s.installApp(ctx, source, out)
+	})
+}
+
+// InstallManualTool cài repo git chưa có app.toml: sinh app.toml từ tên hiển
+// thị, lệnh chạy và cờ GUI do người dùng cung cấp rồi cài như bình thường.
+func (s *Service) InstallManualTool(ctx context.Context, source, name, entry string, gui bool) (string, error) {
+	if strings.TrimSpace(source) == "" {
+		return "", errors.New("thiếu nguồn cài đặt")
+	}
+	fields, err := manualEntry(entry)
+	if err != nil {
+		return "", err
+	}
+	id := appmgr.SanitizeAppID(name)
+	if id == "" {
+		return "", fmt.Errorf("không tạo được id app từ tên %q", name)
+	}
+	spec := core.AppSpec{
+		SchemaVersion: 1,
+		ID:            id,
+		Runtime:       "python",
+		Entry:         fields,
+		GUI:           gui,
+	}
+	return s.startInstall(ctx, source, name, func(ctx context.Context, out chan<- core.Event) (*core.App, error) {
+		return s.installGitSpec(ctx, source, spec, out)
+	})
+}
+
+// startInstall tạo runID và chạy hàm cài đặt trong goroutine; install nhận
+// kênh out để phát log, trả về app vừa cài (hoặc lỗi). toolName là tên hiển
+// thị khi ghi tool vào registry (rỗng thì dùng id app).
+func (s *Service) startInstall(ctx context.Context, source, toolName string, install func(context.Context, chan<- core.Event) (*core.App, error)) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	// Cài đặt phải tiếp tục sau khi handler trả về, không bị hủy cùng request.
 	ctx = context.WithoutCancel(ctx)
-	if strings.TrimSpace(source) == "" {
-		return "", errors.New("thiếu nguồn cài đặt")
-	}
 
 	runID, err := newRunID()
 	if err != nil {
@@ -38,7 +73,7 @@ func (s *Service) InstallTool(ctx context.Context, source string) (string, error
 	s.runs[runID] = &run{id: runID, subs: make(map[chan core.Event]struct{})}
 	s.mu.Unlock()
 
-	go s.installRun(ctx, runID, source)
+	go s.installRun(ctx, runID, source, toolName, install)
 	return runID, nil
 }
 
@@ -75,7 +110,7 @@ func (s *Service) RemoveTool(id string) error {
 	return registry.RemoveTool(filepath.Join(s.dir, "tools.toml"), id)
 }
 
-func (s *Service) installRun(ctx context.Context, runID, source string) {
+func (s *Service) installRun(ctx context.Context, runID, source, toolName string, install func(context.Context, chan<- core.Event) (*core.App, error)) {
 	out := make(chan core.Event, 64)
 	forwardDone := make(chan struct{})
 	go func() {
@@ -89,9 +124,18 @@ func (s *Service) installRun(ctx context.Context, runID, source string) {
 		close(forwardDone)
 	}()
 
-	app, err := s.installApp(ctx, source, out)
+	app, err := install(ctx, out)
 	close(out)
 	<-forwardDone
+
+	if errors.Is(err, core.ErrAppConfigMissing) {
+		// Repo clone được nhưng không có app.toml: không coi là lỗi, để
+		// người dùng bổ sung thông tin qua /api/app/install-manual.
+		s.publish(runID, core.Event{RunID: runID, Kind: "manual", Text: "Cần tạo app.toml thủ công.", Data: map[string]any{"source": source}})
+		s.publish(runID, core.Event{RunID: runID, Kind: "result", Text: "Repo không có app.toml. Điền tên và lệnh chạy bên dưới để tiếp tục.", Data: map[string]any{"ok": false, "manual": true}})
+		s.finishRun(runID)
+		return
+	}
 
 	fail := func(text string) {
 		s.publish(runID, core.Event{RunID: runID, Kind: "error", Text: text})
@@ -104,7 +148,7 @@ func (s *Service) installRun(ctx context.Context, runID, source string) {
 		return
 	}
 
-	if err := s.registerTool(app.ID); err != nil {
+	if err := s.registerTool(app.ID, toolName); err != nil {
 		// Rollback app vừa cài để người dùng có thể cài lại từ đầu.
 		if cleanupErr := s.mgr.Remove(app.ID); cleanupErr != nil {
 			err = fmt.Errorf("%w (không dọn được thư mục app: %v)", err, cleanupErr)
@@ -122,7 +166,33 @@ func (s *Service) installRun(ctx context.Context, runID, source string) {
 	s.finishRun(runID)
 }
 
-func (s *Service) registerTool(id string) error {
+// manualEntry phân tích lệnh chạy do người dùng nhập, ví dụ "python main.py".
+func manualEntry(entry string) ([]string, error) {
+	fields := strings.Fields(entry)
+	if len(fields) < 2 {
+		return nil, fmt.Errorf("lệnh chạy phải có dạng \"python main.py\" (đang là %q)", entry)
+	}
+	if !strings.EqualFold(fields[0], "python") {
+		return nil, fmt.Errorf("lệnh chạy phải bắt đầu bằng \"python\", ví dụ \"python main.py\"")
+	}
+	fields[0] = "python"
+	return fields, nil
+}
+
+func (s *Service) installGitSpec(ctx context.Context, source string, spec core.AppSpec, out chan<- core.Event) (*core.App, error) {
+	emit(out, core.Event{Kind: "log", Text: fmt.Sprintf("Đang clone %s...", source)})
+	app, err := s.mgr.InstallGit(ctx, source, spec)
+	if err != nil {
+		return nil, err
+	}
+	emit(out, core.Event{Kind: "log", Text: fmt.Sprintf("Đã clone app %q và tạo app.toml.", app.ID)})
+	if err := s.installRuntime(ctx, *app, out); err != nil {
+		return nil, removeOnFailure(s.mgr, *app, err)
+	}
+	return app, nil
+}
+
+func (s *Service) registerTool(id, name string) error {
 	path := filepath.Join(s.dir, "tools.toml")
 	tools, err := registry.Load(path)
 	if err != nil {
@@ -131,7 +201,10 @@ func (s *Service) registerTool(id string) error {
 	if findTool(tools, id) != nil {
 		return nil
 	}
-	return registry.AddTool(path, core.Tool{ID: id, Name: id, Kind: "app", App: id})
+	if name == "" {
+		name = id
+	}
+	return registry.AddTool(path, core.Tool{ID: id, Name: name, Kind: "app", App: id})
 }
 
 func (s *Service) installApp(ctx context.Context, source string, out chan<- core.Event) (*core.App, error) {

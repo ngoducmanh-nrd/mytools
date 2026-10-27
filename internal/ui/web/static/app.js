@@ -7,7 +7,13 @@ const detailBody = document.getElementById("detail-body");
 const runList = document.getElementById("run-list");
 const installSource = document.getElementById("install-source");
 const installButton = document.getElementById("install-btn");
+const installStatus = document.getElementById("install-status");
 const installLog = document.getElementById("install-log");
+const manualForm = document.getElementById("manual-form");
+const manualName = document.getElementById("manual-name");
+const manualEntry = document.getElementById("manual-entry");
+const manualGUI = document.getElementById("manual-gui");
+const manualButton = document.getElementById("manual-btn");
 const addToolButton = document.getElementById("add-tool");
 const notice = document.getElementById("notice");
 
@@ -111,8 +117,13 @@ function renderToolList() {
 
     item.appendChild(el("span", "tool-kind", tool.kind));
 
-    const removeButton = el("button", "remove-btn", "✕");
+    const removeButton = el("button", "remove-btn");
     removeButton.title = "Xóa tool " + tool.id;
+    removeButton.setAttribute("aria-label", "Xóa tool " + tool.id);
+    removeButton.innerHTML =
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+      '<path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>' +
+      "</svg>";
     removeButton.addEventListener("click", (event) => {
       event.stopPropagation();
       removeTool(tool);
@@ -323,6 +334,84 @@ function appendInstall(text, className) {
   installLog.scrollTop = installLog.scrollHeight;
 }
 
+function setInstalling(active) {
+  installButton.disabled = active;
+  installSource.disabled = active;
+  installStatus.hidden = !active;
+}
+
+function showManualForm() {
+  manualForm.hidden = false;
+  if (!manualName.value) {
+    manualName.focus();
+  } else {
+    manualEntry.focus();
+  }
+}
+
+function hideManualForm() {
+  manualForm.hidden = true;
+}
+
+// Theo dõi một lần cài đặt qua SSE. manual=true là lần cài từ mini-form:
+// nếu thất bại thật sự (không phải thiếu app.toml) thì hiện lại form để sửa.
+function watchInstallRun(runID, manual) {
+  const eventSource = new EventSource("/api/events?runID=" + encodeURIComponent(runID));
+  let finished = false;
+
+  eventSource.onmessage = (message) => {
+    if (finished) return;
+    const event = JSON.parse(message.data);
+
+    switch (event.kind) {
+      case "manual":
+        appendInstall(event.text + "\n", "line-warn");
+        break;
+      case "progress":
+        appendInstall(event.text + "\n", "line-progress");
+        break;
+      case "error":
+        appendInstall(event.text + "\n", "line-error");
+        break;
+      case "result": {
+        finished = true;
+        const data = event.data || {};
+        if (data.manual === true) {
+          appendInstall(event.text + "\n", "line-warn");
+          setInstalling(false);
+          showManualForm();
+        } else {
+          const ok = data.ok !== false;
+          appendInstall(event.text + "\n", ok ? "line-result ok" : "line-result fail");
+          setInstalling(false);
+          if (ok) {
+            const installedID = data.id;
+            showNotice(installedID ? `Đã cài tool "${installedID}".` : "Đã cài tool.");
+            loadTools().then(() => {
+              if (installedID) selectTool(installedID);
+            });
+          } else if (manual) {
+            showManualForm();
+          }
+        }
+        eventSource.close();
+        break;
+      }
+      default:
+        appendInstall(event.text + "\n", "");
+        break;
+    }
+  };
+
+  eventSource.onerror = () => {
+    if (!finished) {
+      appendInstall("(mất kết nối tới máy chủ)\n", "line-error");
+      setInstalling(false);
+      if (manual) showManualForm();
+    }
+  };
+}
+
 async function runInstall() {
   const source = installSource.value.trim();
   if (!source) {
@@ -331,8 +420,8 @@ async function runInstall() {
     return;
   }
 
-  installButton.disabled = true;
-  installSource.disabled = true;
+  hideManualForm();
+  setInstalling(true);
   installLog.hidden = false;
   installLog.replaceChildren();
   appendInstall("Đang gửi yêu cầu cài đặt " + source + "…\n");
@@ -343,44 +432,49 @@ async function runInstall() {
     runID = data.run_id;
   } catch (err) {
     appendInstall("Lỗi: " + err.message + "\n", "line-error");
-    installButton.disabled = false;
-    installSource.disabled = false;
+    setInstalling(false);
     return;
   }
 
-  const eventSource = new EventSource("/api/events?runID=" + encodeURIComponent(runID));
-  eventSource.onmessage = (message) => {
-    const event = JSON.parse(message.data);
-    switch (event.kind) {
-      case "progress":
-        appendInstall(event.text + "\n", "line-progress");
-        break;
-      case "error":
-        appendInstall(event.text + "\n", "line-error");
-        break;
-      case "result": {
-        const ok = !event.data || event.data.ok !== false;
-        appendInstall(event.text + "\n", ok ? "line-result ok" : "line-result fail");
-        eventSource.close();
-        installButton.disabled = false;
-        installSource.disabled = false;
-        if (ok) {
-          const installedID = event.data && event.data.id;
-          showNotice(installedID ? `Đã cài tool "${installedID}".` : "Đã cài tool.");
-          loadTools().then(() => {
-            if (installedID) selectTool(installedID);
-          });
-        }
-        break;
-      }
-      default:
-        appendInstall(event.text + "\n", "");
-        break;
-    }
-  };
-  eventSource.onerror = () => {
-    appendInstall("(mất kết nối tới máy chủ)\n", "line-error");
-  };
+  watchInstallRun(runID, false);
+}
+
+async function runManualInstall() {
+  const source = installSource.value.trim();
+  const name = manualName.value.trim();
+  const entry = manualEntry.value.trim();
+  if (!name) {
+    showNotice("Điền Tên hiển thị trước.");
+    manualName.focus();
+    return;
+  }
+  if (!entry) {
+    showNotice('Điền Lệnh chạy, ví dụ "python main.py".');
+    manualEntry.focus();
+    return;
+  }
+
+  hideManualForm();
+  setInstalling(true);
+  appendInstall("Đang tạo app.toml và cài đặt…\n");
+
+  let runID;
+  try {
+    const data = await api("/api/app/install-manual", {
+      source,
+      name,
+      entry,
+      gui: manualGUI.checked,
+    });
+    runID = data.run_id;
+  } catch (err) {
+    appendInstall("Lỗi: " + err.message + "\n", "line-error");
+    setInstalling(false);
+    showManualForm();
+    return;
+  }
+
+  watchInstallRun(runID, true);
 }
 
 async function removeTool(tool) {
@@ -420,6 +514,15 @@ addToolButton.addEventListener("click", () => {
 });
 
 installButton.addEventListener("click", runInstall);
+
+manualButton.addEventListener("click", runManualInstall);
+
+manualEntry.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    runManualInstall();
+  }
+});
 
 installSource.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {

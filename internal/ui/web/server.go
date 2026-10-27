@@ -26,6 +26,7 @@ type ToolRunner interface {
 	Subscribe(runID string) (<-chan core.Event, func(), error)
 	Answer(runID, answer string) error
 	InstallTool(ctx context.Context, source string) (string, error)
+	InstallManualTool(ctx context.Context, source, name, entry string, gui bool) (string, error)
 	RemoveTool(id string) error
 }
 
@@ -134,6 +135,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/answer", s.handleAnswer)
 	mux.HandleFunc("/api/app/add", s.handleAppAdd)
+	mux.HandleFunc("/api/app/install-manual", s.handleAppInstallManual)
 	mux.HandleFunc("/api/app/remove", s.handleAppRemove)
 	return s.security(mux)
 }

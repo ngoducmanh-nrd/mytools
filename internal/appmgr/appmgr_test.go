@@ -356,6 +356,102 @@ func TestCloneGitMissingAppTOML(t *testing.T) {
 	}
 }
 
+func TestInstallGitWritesProvidedSpec(t *testing.T) {
+	requireGit(t)
+	repo := newGitRepo(t, map[string]string{"main.py": "print('hello')\n"})
+	head := strings.TrimSpace(gitIn(t, repo, "rev-parse", "HEAD"))
+
+	dataDir := t.TempDir()
+	app, err := New(dataDir).InstallGit(context.Background(), repo, core.AppSpec{
+		SchemaVersion: 1,
+		ID:            "rea",
+		Runtime:       "python",
+		Entry:         []string{"python", "main.py"},
+		GUI:           true,
+	})
+	if err != nil {
+		t.Fatalf("InstallGit: %v", err)
+	}
+	if app.Source != repo || app.Ref != head {
+		t.Fatalf("source/ref = %q/%q, muốn %q/%q", app.Source, app.Ref, repo, head)
+	}
+	if app.Runtime != "python" || !app.GUI {
+		t.Fatalf("spec = %+v", app.AppSpec)
+	}
+
+	for _, name := range []string{"app.toml", "main.py"} {
+		if _, err := os.Stat(filepath.Join(app.Dir, name)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	loaded, err := New(dataDir).LoadApp("rea")
+	if err != nil {
+		t.Fatalf("LoadApp: %v", err)
+	}
+	if loaded.Entry == nil || len(loaded.Entry) != 2 || loaded.Entry[1] != "main.py" {
+		t.Fatalf("entry = %v", loaded.Entry)
+	}
+
+	entries, statErr := os.ReadDir(filepath.Join(dataDir, "apps"))
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if len(entries) != 1 || entries[0].Name() != "rea" {
+		t.Fatalf("còn thư mục tạm: %v", entries)
+	}
+}
+
+func TestInstallGitRejectsBadSpec(t *testing.T) {
+	requireGit(t)
+	repo := newGitRepo(t, map[string]string{"main.py": "print('hello')\n"})
+
+	dataDir := t.TempDir()
+	_, err := New(dataDir).InstallGit(context.Background(), repo, core.AppSpec{
+		SchemaVersion: 1,
+		ID:            "rea",
+		Runtime:       "python",
+		Entry:         []string{"main.py"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "entry") {
+		t.Fatalf("entry sai phải bị từ chối: %v", err)
+	}
+	entries, statErr := os.ReadDir(filepath.Join(dataDir, "apps"))
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("bản clone chưa được xóa: %v", entries)
+	}
+}
+
+func TestInstallGitExistingApp(t *testing.T) {
+	requireGit(t)
+	repo := newGitRepo(t, map[string]string{"main.py": "print('hello')\n"})
+
+	dataDir := t.TempDir()
+	mgr := New(dataDir)
+	if _, err := mgr.Add(testSpec("demo")); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	_, err := mgr.InstallGit(context.Background(), repo, core.AppSpec{
+		SchemaVersion: 1,
+		ID:            "demo",
+		Runtime:       "python",
+		Entry:         []string{"python", "main.py"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "đã tồn tại") {
+		t.Fatalf("lỗi không đúng: %v", err)
+	}
+	loaded, loadErr := mgr.LoadApp("demo")
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if loaded.Runtime != "binary" {
+		t.Fatalf("app cũ bị ghi đè: %+v", loaded.AppSpec)
+	}
+}
+
 func TestCloneGitExistingApp(t *testing.T) {
 	requireGit(t)
 	repo := newGitRepo(t, map[string]string{

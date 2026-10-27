@@ -136,24 +136,9 @@ func (m *Manager) Add(spec core.AppSpec) (*core.App, error) {
 }
 
 func (m *Manager) CloneGit(ctx context.Context, rawURL, ref string) (*core.App, error) {
-	if strings.TrimSpace(rawURL) == "" {
-		return nil, errors.New("URL hoặc đường dẫn git không được để trống")
-	}
-	if err := validateRef(ref); err != nil {
-		return nil, err
-	}
-
-	appsDir, err := m.appsDir()
+	staging, head, err := m.cloneStaging(ctx, rawURL, ref)
 	if err != nil {
 		return nil, err
-	}
-	if err := os.MkdirAll(appsDir, 0o700); err != nil {
-		return nil, fmt.Errorf("tạo thư mục app: %w", err)
-	}
-
-	staging, err := os.MkdirTemp(appsDir, ".clone-*")
-	if err != nil {
-		return nil, fmt.Errorf("tạo thư mục clone tạm: %w", err)
 	}
 	installed := false
 	defer func() {
@@ -161,22 +146,6 @@ func (m *Manager) CloneGit(ctx context.Context, rawURL, ref string) (*core.App, 
 			_ = os.RemoveAll(staging)
 		}
 	}()
-
-	if _, err := gitOutput(ctx, "clone", "--quiet", "--", rawURL, staging); err != nil {
-		return nil, err
-	}
-	if ref != "" {
-		if _, err := gitOutput(ctx, "-C", staging, "checkout", "--quiet", "--detach", ref); err != nil {
-			return nil, err
-		}
-	}
-	head, err := gitOutput(ctx, "-C", staging, "rev-parse", "HEAD")
-	if err != nil {
-		return nil, err
-	}
-	if head == "" {
-		return nil, errors.New("không đọc được commit HEAD của bản clone")
-	}
 
 	spec, err := readAppSpec(filepath.Join(staging, appSpecName))
 	if err != nil {
@@ -209,6 +178,93 @@ func (m *Manager) CloneGit(ctx context.Context, rawURL, ref string) (*core.App, 
 	}
 	installed = true
 	return &core.App{AppSpec: *spec, Dir: dir}, nil
+}
+
+// InstallGit clone repo không cần app.toml sẵn: ghi spec do người gọi cung cấp
+// (kèm source và commit HEAD) vào app.toml của bản clone rồi đặt vào apps/<id>.
+func (m *Manager) InstallGit(ctx context.Context, rawURL string, spec core.AppSpec) (*core.App, error) {
+	staging, head, err := m.cloneStaging(ctx, rawURL, "")
+	if err != nil {
+		return nil, err
+	}
+	installed := false
+	defer func() {
+		if !installed {
+			_ = os.RemoveAll(staging)
+		}
+	}()
+
+	spec.Source = rawURL
+	spec.Ref = head
+	if err := validateSpec(spec); err != nil {
+		return nil, fmt.Errorf("app.toml: %w", err)
+	}
+
+	dir, err := m.appDir(spec.ID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Lstat(dir); err == nil {
+		return nil, fmt.Errorf("app %q đã tồn tại", spec.ID)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("kiểm tra app %q: %w", spec.ID, err)
+	}
+
+	if err := writeAppSpec(staging, spec); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(staging, dir); err != nil {
+		return nil, fmt.Errorf("đặt app %q vào %s: %w", spec.ID, dir, err)
+	}
+	installed = true
+	return &core.App{AppSpec: spec, Dir: dir}, nil
+}
+
+// cloneStaging clone rawURL (kèm ref tùy chọn) vào thư mục tạm trong appsDir
+// và trả về đường dẫn staging cùng commit HEAD; người gọi chịu trách nhiệm
+// dọn staging khi không dùng tới.
+func (m *Manager) cloneStaging(ctx context.Context, rawURL, ref string) (string, string, error) {
+	if strings.TrimSpace(rawURL) == "" {
+		return "", "", errors.New("URL hoặc đường dẫn git không được để trống")
+	}
+	if err := validateRef(ref); err != nil {
+		return "", "", err
+	}
+
+	appsDir, err := m.appsDir()
+	if err != nil {
+		return "", "", err
+	}
+	if err := os.MkdirAll(appsDir, 0o700); err != nil {
+		return "", "", fmt.Errorf("tạo thư mục app: %w", err)
+	}
+
+	staging, err := os.MkdirTemp(appsDir, ".clone-*")
+	if err != nil {
+		return "", "", fmt.Errorf("tạo thư mục clone tạm: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(staging) }
+
+	if _, err := gitOutput(ctx, "clone", "--quiet", "--", rawURL, staging); err != nil {
+		cleanup()
+		return "", "", err
+	}
+	if ref != "" {
+		if _, err := gitOutput(ctx, "-C", staging, "checkout", "--quiet", "--detach", ref); err != nil {
+			cleanup()
+			return "", "", err
+		}
+	}
+	head, err := gitOutput(ctx, "-C", staging, "rev-parse", "HEAD")
+	if err != nil {
+		cleanup()
+		return "", "", err
+	}
+	if head == "" {
+		cleanup()
+		return "", "", errors.New("không đọc được commit HEAD của bản clone")
+	}
+	return staging, head, nil
 }
 
 func (m *Manager) InstallLocal(srcDir string) (*core.App, error) {
