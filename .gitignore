@@ -4,3 +4,4 @@ mt.exe
 *.test
 *.out
 .DS_Store
+/downloads

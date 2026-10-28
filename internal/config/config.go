@@ -210,7 +210,7 @@ id = "dl"
 name = "Tải video"
 kind = "app"
 app = "yt-dlp"
-args = ["{url}", "--newline", "--no-colors", "-o", "{out}/%(title)s.%(ext)s"]
+args = ["{url}", "--newline", "--no-colors", "--encoding", "utf-8", "-o", "{out}/%(title)s.%(ext)s"]
 tags = ["media"]
 
   [[tool.param]]
@@ -221,7 +221,7 @@ tags = ["media"]
   [[tool.param]]
   name = "out"
   type = "path"
-  default = "~/Downloads"
+  default = "D:/AI/mytools/downloads"
 
 [[tool]]
 id = "auto-music-studio"

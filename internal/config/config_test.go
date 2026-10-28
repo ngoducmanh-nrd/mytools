@@ -94,6 +94,12 @@ func TestEnsureInit(t *testing.T) {
 	if !strings.Contains(string(toolsData), `"{out}/%(title)s.%(ext)s"`) {
 		t.Errorf("dl tool is missing the yt-dlp output template:\n%s", toolsData)
 	}
+	if !strings.Contains(string(toolsData), `"--encoding", "utf-8"`) {
+		t.Errorf("dl tool is missing the utf-8 output encoding flag:\n%s", toolsData)
+	}
+	if !strings.Contains(string(toolsData), `default = "D:/AI/mytools/downloads"`) {
+		t.Errorf("dl tool is missing the default download dir:\n%s", toolsData)
+	}
 
 	matches, err := filepath.Glob(filepath.Join(dir, "*.tmp"))
 	if err != nil {
