@@ -6,6 +6,7 @@
  *   - GET  /api/events?runID=<run_id> (SSE: ask, error, progress, result, ...)
  *   - POST /api/answer       ({ run_id, answer }) -> { ok: true }
  *   - POST /api/app/add      (Cài đặt / Thêm tool mới)
+ *   - POST /api/agent/chat   (Agent mini: proxy tới API LLM OpenAI-compatible)
  */
 
 const TOKEN_META = document.querySelector('meta[name="mt-token"]');
@@ -26,6 +27,16 @@ const state = {
   recentParams: JSON.parse(localStorage.getItem("mt_recent_params") || "{}"),
   recentRawArgs: JSON.parse(localStorage.getItem("mt_recent_raw_args") || "{}"),
   helpCache: {},              // toolID -> {summary, output, path} kết quả --help trong phiên
+
+  // Agent mini: cấu hình API LLM dạng OpenAI-compatible + hội thoại hiện tại.
+  // Key nằm trong localStorage trình duyệt, không gửi đi đâu ngoài Base URL khai báo.
+  agent: {
+    baseUrl: localStorage.getItem("mt_agent_base_url") || "https://api.groq.com/openai/v1",
+    apiKey: localStorage.getItem("mt_agent_api_key") || "",
+    model: localStorage.getItem("mt_agent_model") || "llama-3.3-70b-versatile",
+    messages: [],  // [{role, content}] gửi lên server (server chỉ giữ 8 tin gần nhất)
+    busy: false
+  },
 
   // Quản lý các phiên chạy (runs) trong Terminal Dock (Cột 3)
   runs: new Map(),           // runID -> RunSession
@@ -577,7 +588,7 @@ function selectToolInDock(toolId, focusFirstInput = false) {
     info.className = "no-param-banner";
     info.textContent = tool.kind === "url"
       ? "Công cụ dạng URL — nhấn \"Mở ngay\" để mở trong tab mới."
-      : "Công cụ này không yêu cầu tham số đầu vào. Nhấn \"Chạy ngay\" để khởi chạy.";
+      : "Công cụ này không khai báo tham số. Xem hướng dẫn (--help) bên dưới, nhập đối số vào ô Raw Args (ví dụ: URL video) rồi nhấn \"Chạy ngay\".";
     paramsContainer.appendChild(info);
   } else {
     resetParamsBtn.hidden = false;
@@ -810,7 +821,7 @@ function appendHelpSection(tool) {
 async function renderToolHelp(tool, body) {
   const cached = state.helpCache[tool.id];
   if (cached) {
-    fillHelpBody(body, cached);
+    fillHelpBody(body, cached, !hasParams(tool));
     return;
   }
 
@@ -848,10 +859,19 @@ async function renderToolHelp(tool, body) {
     path: String(data.path || "")
   };
   state.helpCache[tool.id] = info;
-  fillHelpBody(body, info);
+  fillHelpBody(body, info, !hasParams(tool));
 }
 
-function fillHelpBody(body, info) {
+// Mở rộng toàn bộ output --help khi phiên chạy thất bại để người dùng thấy
+// ngay cách dùng đúng (ví dụ yt-dlp thiếu URL).
+function expandDockHelp() {
+  const help = document.getElementById("dock-help");
+  if (!help) return;
+  const details = help.querySelector("details.dock-help-details");
+  if (details && !details.open) details.open = true;
+}
+
+function fillHelpBody(body, info, autoOpenOutput = false) {
   body.textContent = "";
 
   if (!info.summary && !info.output) {
@@ -872,6 +892,7 @@ function fillHelpBody(body, info) {
   if (info.output) {
     const details = document.createElement("details");
     details.className = "dock-help-details";
+    details.open = autoOpenOutput;
     const summary = document.createElement("summary");
     summary.textContent = "Xem toàn bộ output --help";
     const pre = document.createElement("pre");
@@ -886,6 +907,92 @@ function fillHelpBody(body, info) {
     pathLine.className = "dock-help-path";
     pathLine.textContent = `Đã lưu: ${info.path}`;
     body.appendChild(pathLine);
+  }
+}
+
+/* ==========================================================================
+   AGENT MINI: CÀI ĐẶT API (OPENAI-COMPATIBLE) + KHUNG CHAT
+   ========================================================================== */
+function openAgentSettings() {
+  document.getElementById("agent-base-url").value = state.agent.baseUrl;
+  document.getElementById("agent-api-key").value = state.agent.apiKey;
+  document.getElementById("agent-model").value = state.agent.model;
+  document.getElementById("agent-settings-dialog").hidden = false;
+  document.getElementById("agent-base-url").focus();
+}
+
+function closeAgentSettings() {
+  document.getElementById("agent-settings-dialog").hidden = true;
+}
+
+function saveAgentSettings() {
+  state.agent.baseUrl = document.getElementById("agent-base-url").value.trim();
+  state.agent.apiKey = document.getElementById("agent-api-key").value.trim();
+  state.agent.model = document.getElementById("agent-model").value.trim();
+  localStorage.setItem("mt_agent_base_url", state.agent.baseUrl);
+  localStorage.setItem("mt_agent_api_key", state.agent.apiKey);
+  localStorage.setItem("mt_agent_model", state.agent.model);
+  closeAgentSettings();
+  showToast("Đã lưu cấu hình API cho Agent.", "success", "Cài đặt Agent");
+}
+
+function toggleAgentPanel() {
+  const panel = document.getElementById("agent-panel");
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) {
+    document.getElementById("agent-input").focus();
+  }
+}
+
+function closeAgentPanel() {
+  document.getElementById("agent-panel").hidden = true;
+}
+
+function appendAgentBubble(role, text) {
+  const list = document.getElementById("agent-messages");
+  const bubble = document.createElement("div");
+  bubble.className = `agent-bubble ${role === "user" ? "agent-user" : "agent-bot"}`;
+  bubble.textContent = text;
+  list.appendChild(bubble);
+  list.scrollTop = list.scrollHeight;
+}
+
+function setAgentBusy(busy) {
+  state.agent.busy = busy;
+  document.getElementById("btn-agent-send").disabled = busy;
+  document.getElementById("agent-typing").hidden = !busy;
+}
+
+async function sendAgentMessage() {
+  const input = document.getElementById("agent-input");
+  const text = input.value.trim();
+  if (!text || state.agent.busy) return;
+  input.value = "";
+
+  appendAgentBubble("user", text);
+  state.agent.messages.push({ role: "user", content: text });
+
+  if (!state.agent.apiKey) {
+    appendAgentBubble("bot", "Chưa có API key. Bấm nút \"Cài đặt\" phía trên để dán key của Groq hoặc nhà cung cấp OpenAI-compatible khác.");
+    openAgentSettings();
+    return;
+  }
+
+  setAgentBusy(true);
+  try {
+    const data = await api("/api/agent/chat", {
+      base_url: state.agent.baseUrl,
+      api_key: state.agent.apiKey,
+      model: state.agent.model,
+      messages: state.agent.messages.slice(-8)
+    });
+    const reply = String(data.content || "").trim() || "(Agent không trả lời)";
+    state.agent.messages.push({ role: "assistant", content: reply });
+    appendAgentBubble("bot", reply);
+  } catch (err) {
+    appendAgentBubble("bot", `Lỗi: ${err.message}`);
+  } finally {
+    setAgentBusy(false);
   }
 }
 
@@ -1082,6 +1189,10 @@ function finishSession(session, finalStatus) {
     session.status = finalStatus;
   }
   session.askPrompt = null;
+
+  if (session.status === "fail") {
+    expandDockHelp();
+  }
 
   appendSessionLog(
     session,
@@ -1528,11 +1639,23 @@ function bindEvents() {
       switchCenterView("tools");
       searchInput.focus();
       searchInput.select();
-    } else if (e.key === "Escape" && document.activeElement === searchInput) {
-      if (searchInput.value) {
-        searchClear.click();
-      } else {
-        searchInput.blur();
+    } else if (e.key === "Escape") {
+      const settingsDialog = document.getElementById("agent-settings-dialog");
+      if (!settingsDialog.hidden) {
+        closeAgentSettings();
+        return;
+      }
+      const agentPanel = document.getElementById("agent-panel");
+      if (!agentPanel.hidden) {
+        closeAgentPanel();
+        return;
+      }
+      if (document.activeElement === searchInput) {
+        if (searchInput.value) {
+          searchClear.click();
+        } else {
+          searchInput.blur();
+        }
       }
     } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       if (state.centerView === "tools" && state.selectedToolId) {
@@ -1545,11 +1668,32 @@ function bindEvents() {
     }
   });
 
-  // Nút chuyển màn hình Cài đặt Tool (+)
-  document.getElementById("btn-open-install").onclick = () => switchCenterView("install");
+  // Nút cài đặt API cho Agent (thay nút "Cài đặt Tool" cũ trên thanh trên)
+  document.getElementById("btn-open-settings").onclick = openAgentSettings;
   document.getElementById("sidebar-btn-install").onclick = () => switchCenterView("install");
   document.getElementById("btn-empty-install").onclick = () => switchCenterView("install");
   document.getElementById("btn-back-tools").onclick = () => switchCenterView("tools");
+
+  // Agent mini: hộp thoại cài đặt API + khung chat nổi
+  document.getElementById("btn-agent-settings-save").onclick = saveAgentSettings;
+  document.getElementById("btn-agent-settings-close").onclick = closeAgentSettings;
+  document.getElementById("btn-agent-open-install").onclick = () => {
+    closeAgentSettings();
+    switchCenterView("install");
+  };
+  document.getElementById("agent-settings-dialog").onclick = (e) => {
+    if (e.target === e.currentTarget) closeAgentSettings();
+  };
+  document.getElementById("btn-agent-toggle").onclick = toggleAgentPanel;
+  document.getElementById("btn-agent-close").onclick = closeAgentPanel;
+  document.getElementById("btn-agent-settings-small").onclick = openAgentSettings;
+  document.getElementById("btn-agent-send").onclick = sendAgentMessage;
+  document.getElementById("agent-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendAgentMessage();
+    }
+  });
 
   // Nút Làm mới & Đổi Theme
   document.getElementById("btn-refresh").onclick = () => loadTools(true);

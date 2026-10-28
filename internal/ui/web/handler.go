@@ -203,6 +203,33 @@ type removeRequest struct {
 	ID string `json:"id"`
 }
 
+// handleAgentChat chuyển tiếp hội thoại tới API LLM dạng OpenAI-compatible do
+// người dùng cấu hình trên giao diện. API key chỉ nằm trong request này,
+// không ghi log hay lưu ở server.
+func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		BaseURL  string              `json:"base_url"`
+		APIKey   string              `json:"api_key"`
+		Model    string              `json:"model"`
+		Messages []core.AgentMessage `json:"messages"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("JSON không hợp lệ: %w", err))
+		return
+	}
+
+	content, err := s.runner.AgentChat(r.Context(), core.AgentConfig{
+		BaseURL: req.BaseURL,
+		APIKey:  req.APIKey,
+		Model:   req.Model,
+	}, req.Messages)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"content": content})
+}
+
 func (s *Server) handleAppRemove(w http.ResponseWriter, r *http.Request) {
 	var req removeRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {

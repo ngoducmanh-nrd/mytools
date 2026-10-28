@@ -37,6 +37,10 @@ type fakeRunner struct {
 	customCalls    []customCall
 	installErr     error
 	removedIDs     []string
+	agentErr       error
+	agentReply     string
+	agentCfg       core.AgentConfig
+	agentMsgs      []core.AgentMessage
 }
 
 type manualCall struct {
@@ -196,6 +200,17 @@ func (f *fakeRunner) RemoveTool(id string) error {
 	defer f.mu.Unlock()
 	f.removedIDs = append(f.removedIDs, id)
 	return nil
+}
+
+func (f *fakeRunner) AgentChat(ctx context.Context, cfg core.AgentConfig, messages []core.AgentMessage) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.agentErr != nil {
+		return "", f.agentErr
+	}
+	f.agentCfg = cfg
+	f.agentMsgs = append([]core.AgentMessage(nil), messages...)
+	return f.agentReply, nil
 }
 
 func (f *fakeRunner) publish(runID string, event core.Event) {
@@ -812,6 +827,63 @@ func TestAppRemoveEndpoint(t *testing.T) {
 	}
 	if resp, _ := del(`không phải JSON`, s.Token()); resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("remove JSON hỏng: %d", resp.StatusCode)
+	}
+}
+
+func TestAgentChatEndpoint(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+	fake := s.runner.(*fakeRunner)
+	fake.agentReply = "Dùng mt run yt-dlp <url>."
+
+	post := func(body string, token string) (*http.Response, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/agent/chat", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "" {
+			req.Header.Set("X-MT-Token", token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var parsed map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&parsed)
+		return resp, parsed
+	}
+
+	body := `{"base_url":"https://api.groq.com/openai/v1","api_key":"gsk-abc","model":"m","messages":[{"role":"user","content":"cách tải video?"}]}`
+	resp, parsed := post(body, s.Token())
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("agent: %d %v", resp.StatusCode, parsed)
+	}
+	if parsed["content"] != "Dùng mt run yt-dlp <url>." {
+		t.Errorf("content = %v", parsed["content"])
+	}
+
+	fake.mu.Lock()
+	cfg := fake.agentCfg
+	msgs := append([]core.AgentMessage(nil), fake.agentMsgs...)
+	fake.mu.Unlock()
+	if cfg.BaseURL != "https://api.groq.com/openai/v1" || cfg.APIKey != "gsk-abc" || cfg.Model != "m" {
+		t.Errorf("cfg = %+v", cfg)
+	}
+	if len(msgs) != 1 || msgs[0].Content != "cách tải video?" {
+		t.Errorf("msgs = %v", msgs)
+	}
+
+	if resp, _ := post(body, ""); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("agent thiếu token: %d", resp.StatusCode)
+	}
+	if resp, _ := post(`không phải JSON`, s.Token()); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("agent JSON hỏng: %d", resp.StatusCode)
+	}
+
+	fake.agentErr = fmt.Errorf("API agent trả HTTP 401: invalid api key")
+	if resp, parsed := post(body, s.Token()); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("agent lỗi upstream: %d %v", resp.StatusCode, parsed)
 	}
 }
 
