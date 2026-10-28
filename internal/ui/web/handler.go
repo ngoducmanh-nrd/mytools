@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"mytools/internal/core"
+	"mytools/internal/runner"
 )
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -228,6 +231,42 @@ func (s *Server) handleAgentChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"content": content})
+}
+
+func (s *Server) handleOpenToolDir(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		Dir string `json:"dir"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req)
+
+	dir := strings.TrimSpace(req.Dir)
+	if dir == "" {
+		resolved, err := s.runner.ToolOutDir(id)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err)
+			return
+		}
+		dir = resolved
+	}
+	expanded, err := runner.ExpandHome(dir)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !filepath.IsAbs(expanded) {
+		writeAPIError(w, http.StatusBadRequest, fmt.Errorf("thư mục phải là đường dẫn tuyệt đối: %s", expanded))
+		return
+	}
+	if err := os.MkdirAll(expanded, 0o755); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := openDir(expanded); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "true", "dir": expanded})
 }
 
 func (s *Server) handleAppRemove(w http.ResponseWriter, r *http.Request) {

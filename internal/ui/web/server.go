@@ -32,6 +32,7 @@ type ToolRunner interface {
 	InstallCustomTool(ctx context.Context, id, name, kind, target, entry string, tags []string, venv bool) (string, error)
 	RemoveTool(id string) error
 	AgentChat(ctx context.Context, cfg core.AgentConfig, messages []core.AgentMessage) (string, error)
+	ToolOutDir(id string) (string, error)
 }
 
 // Server chỉ lắng nghe 127.0.0.1 và sinh token ngẫu nhiên mỗi lần khởi động;
@@ -143,6 +144,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/app/install-manual", s.handleAppInstallManual)
 	mux.HandleFunc("/api/app/remove", s.handleAppRemove)
 	mux.HandleFunc("POST /api/agent/chat", s.handleAgentChat)
+	mux.HandleFunc("POST /api/tools/{id}/open-dir", s.handleOpenToolDir)
 	return s.security(mux)
 }
 

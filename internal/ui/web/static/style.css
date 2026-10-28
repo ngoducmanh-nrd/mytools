@@ -1438,6 +1438,17 @@ kbd {
   background: rgba(239, 68, 68, 0.25);
 }
 
+.dock-open-btn {
+  color: #93c5fd;
+  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+}
+.dock-open-btn:hover {
+  color: #bfdbfe;
+  border-color: rgba(96, 165, 250, 0.6);
+  background: rgba(59, 130, 246, 0.2);
+}
+
 /* Progress bar trong Terminal */
 .term-progress-wrap {
   display: flex;

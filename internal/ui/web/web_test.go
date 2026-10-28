@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -41,6 +43,9 @@ type fakeRunner struct {
 	agentReply     string
 	agentCfg       core.AgentConfig
 	agentMsgs      []core.AgentMessage
+	outDirID       string
+	outDirErr      error
+	outDirReply    string
 }
 
 type manualCall struct {
@@ -211,6 +216,16 @@ func (f *fakeRunner) AgentChat(ctx context.Context, cfg core.AgentConfig, messag
 	f.agentCfg = cfg
 	f.agentMsgs = append([]core.AgentMessage(nil), messages...)
 	return f.agentReply, nil
+}
+
+func (f *fakeRunner) ToolOutDir(id string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.outDirID = id
+	if f.outDirErr != nil {
+		return "", f.outDirErr
+	}
+	return f.outDirReply, nil
 }
 
 func (f *fakeRunner) publish(runID string, event core.Event) {
@@ -986,5 +1001,92 @@ func TestAppAddEndpointRichURLTool(t *testing.T) {
 	fake.mu.Unlock()
 	if len(calls) != 1 || calls[0].kind != "url" || calls[0].venv != true {
 		t.Errorf("customCalls = %+v", calls)
+	}
+}
+
+func TestOpenToolDirEndpoint(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+	fake := s.runner.(*fakeRunner)
+
+	origOpenDir := openDir
+	opened := make([]string, 0, 4)
+	openDir = func(path string) error {
+		opened = append(opened, path)
+		return nil
+	}
+	defer func() { openDir = origOpenDir }()
+
+	post := func(body string, token string) (*http.Response, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/tools/dl/open-dir", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if token != "" {
+			req.Header.Set("X-MT-Token", token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var parsed map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&parsed)
+		return resp, parsed
+	}
+
+	// Có dir trong body: tạo thư mục rồi mở đúng đường dẫn đó.
+	target := filepath.Join(t.TempDir(), "mt-open-dir-test")
+	body, err := json.Marshal(map[string]string{"dir": target})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, parsed := post(string(body), s.Token())
+	if resp.StatusCode != http.StatusOK || parsed["ok"] != "true" || parsed["dir"] != target {
+		t.Fatalf("open-dir có dir: %d %v", resp.StatusCode, parsed)
+	}
+	if len(opened) != 1 || opened[0] != target {
+		t.Errorf("opened = %v, want [%s]", opened, target)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("thư mục chưa được tạo: %v", err)
+	}
+
+	// Body rỗng: lấy thư mục từ runner.ToolOutDir.
+	base := t.TempDir()
+	fake.outDirReply = filepath.Join(base, "downloads")
+	resp, parsed = post(`{}`, s.Token())
+	if resp.StatusCode != http.StatusOK || parsed["dir"] != fake.outDirReply {
+		t.Fatalf("open-dir body rỗng: %d %v", resp.StatusCode, parsed)
+	}
+	fake.mu.Lock()
+	gotID := fake.outDirID
+	fake.mu.Unlock()
+	if gotID != "dl" {
+		t.Errorf("outDirID = %q, want dl", gotID)
+	}
+	if len(opened) != 2 || opened[1] != fake.outDirReply {
+		t.Errorf("opened = %v", opened)
+	}
+
+	// Runner lỗi → 400.
+	fake.outDirErr = fmt.Errorf("không có tool")
+	if resp, _ := post(`{}`, s.Token()); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("open-dir runner lỗi: %d", resp.StatusCode)
+	}
+	fake.outDirErr = nil
+
+	// Đường dẫn tương đối → 400.
+	relBody, err := json.Marshal(map[string]string{"dir": "relative/path"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp, _ := post(string(relBody), s.Token()); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("open-dir đường dẫn tương đối: %d", resp.StatusCode)
+	}
+
+	// Thiếu token → 403.
+	if resp, _ := post(`{}`, ""); resp.StatusCode != http.StatusForbidden {
+		t.Errorf("open-dir thiếu token: %d", resp.StatusCode)
 	}
 }

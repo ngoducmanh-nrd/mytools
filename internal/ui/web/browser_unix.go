@@ -14,3 +14,11 @@ func OpenBrowser(rawURL string) error {
 	}
 	return exec.Command("xdg-open", rawURL).Start()
 }
+
+// openDir mở thư mục trong trình quản lý file mặc định. Là biến để test thay thế được.
+var openDir = func(path string) error {
+	if path == "" {
+		return fmt.Errorf("đường dẫn rỗng")
+	}
+	return exec.Command("xdg-open", path).Start()
+}

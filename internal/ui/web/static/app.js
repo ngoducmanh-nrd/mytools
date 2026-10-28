@@ -581,6 +581,9 @@ function selectToolInDock(toolId, focusFirstInput = false) {
   formEl.hidden = false;
   toggleBtn.hidden = false;
   document.getElementById("btn-delete-tool").hidden = false;
+  const hasOutParam = tool.kind === "app" && Array.isArray(tool.params) &&
+    tool.params.some((p) => p.name === "out");
+  document.getElementById("btn-open-save-dir").hidden = !hasOutParam;
   configBody.hidden = false;
   toggleBtn.textContent = "Thu gọn";
 
@@ -623,6 +626,7 @@ function clearDockSelection() {
   document.getElementById("dock-param-form").hidden = true;
   document.getElementById("btn-toggle-config").hidden = true;
   document.getElementById("btn-delete-tool").hidden = true;
+  document.getElementById("btn-open-save-dir").hidden = true;
   document.getElementById("dock-config-body").hidden = false;
   document.getElementById("dock-params-container").innerHTML = "";
 }
@@ -1742,6 +1746,23 @@ function bindEvents() {
   document.getElementById("btn-delete-tool").onclick = () => {
     const tool = state.tools.find((t) => t.id === state.selectedToolId);
     if (tool) deleteTool(tool);
+  };
+
+  // Mở thư mục lưu kết quả của tool đang chọn
+  document.getElementById("btn-open-save-dir").onclick = async () => {
+    const tool = state.tools.find((t) => t.id === state.selectedToolId);
+    if (!tool) return;
+    const outInput = document.querySelector('#dock-params-container input[name="out"]');
+    const dir = outInput ? outInput.value.trim() : "";
+    try {
+      const data = await api(
+        `/api/tools/${encodeURIComponent(tool.id)}/open-dir`,
+        dir ? { dir } : {}
+      );
+      showToast(`Đã mở thư mục lưu: ${data.dir}`, "success", "Đã mở thư mục");
+    } catch (err) {
+      showToast(err.message, "error", "Mở thư mục thất bại");
+    }
   };
 
   // Submit form chạy tool ở Cột 3

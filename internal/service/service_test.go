@@ -709,3 +709,69 @@ func newPipe(t *testing.T) (read, write *os.File) {
 	}
 	return read, write
 }
+
+func TestToolOutDir(t *testing.T) {
+	fixture := `schema_version = 1
+
+[[tool]]
+id = "dl"
+name = "Tải video"
+kind = "app"
+app = "yt-dlp"
+args = ["-P", "{out}"]
+
+  [[tool.param]]
+  name = "out"
+  type = "path"
+  default = "~/Music"
+
+[[tool]]
+id = "plain"
+name = "App không out"
+kind = "app"
+app = "plain-app"
+
+[[tool]]
+id = "movies"
+name = "Movie Tracker"
+kind = "url"
+target = "https://example.com"
+`
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "tools.toml"), []byte(fixture), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New(dir)
+	t.Cleanup(s.Close)
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ToolOutDir("dl")
+	if err != nil {
+		t.Fatalf("ToolOutDir(dl): %v", err)
+	}
+	if want := filepath.Join(home, "Music"); got != want {
+		t.Errorf("ToolOutDir(dl) = %q, muốn %q", got, want)
+	}
+
+	got, err = s.ToolOutDir("plain")
+	if err != nil {
+		t.Fatalf("ToolOutDir(plain): %v", err)
+	}
+	if want := filepath.Join(dir, "apps", "plain-app"); got != want {
+		t.Errorf("ToolOutDir(plain) = %q, muốn %q", got, want)
+	}
+
+	if _, err := s.ToolOutDir("movies"); err == nil {
+		t.Error("ToolOutDir(movies): mong đợi lỗi cho kind url")
+	}
+	if _, err := s.ToolOutDir("không-có"); err == nil {
+		t.Error("ToolOutDir(không-có): mong đợi lỗi cho id lạ")
+	}
+	if _, err := s.ToolOutDir("  "); err == nil {
+		t.Error("ToolOutDir(\"  \"): mong đợi lỗi cho id rỗng")
+	}
+}

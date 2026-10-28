@@ -202,6 +202,57 @@ func (s *Service) ToolHelp(ctx context.Context, id string) (runner.HelpInfo, err
 	return runner.ToolHelp(ctx, *app)
 }
 
+// ToolOutDir trả về thư mục nơi tool lưu kết quả: giá trị mặc định của tham
+// số "out" nếu tool khai báo, ngược lại thư mục cài app đối với kind "app".
+func (s *Service) ToolOutDir(id string) (string, error) {
+	if strings.TrimSpace(id) == "" {
+		return "", errors.New("thiếu id tool")
+	}
+	tools, err := s.ListTools()
+	if err != nil {
+		return "", err
+	}
+	tool := findTool(tools, id)
+	if tool == nil {
+		return "", fmt.Errorf("không có tool %q (xem \"mt list\")", id)
+	}
+	if tool.Kind != "app" {
+		return "", fmt.Errorf("tool %q (kind %q) không có thư mục lưu", id, tool.Kind)
+	}
+	if tool.App == "" {
+		return "", fmt.Errorf("tool %q thiếu app", id)
+	}
+	values, err := defaultParamValues(tool)
+	if err != nil {
+		return "", err
+	}
+	if out := strings.TrimSpace(values["out"]); out != "" {
+		return out, nil
+	}
+	return filepath.Join(s.dir, "apps", tool.App), nil
+}
+
+// defaultParamValues trả về giá trị mặc định đã khai báo của từng tham số
+// (không kiểm tra required — dùng cho việc tra cứu, không phải để chạy).
+func defaultParamValues(tool *core.Tool) (map[string]string, error) {
+	values := make(map[string]string, len(tool.Params))
+	for _, param := range tool.Params {
+		value, err := paramDefault(param)
+		if err != nil {
+			return nil, fmt.Errorf("tool %q: %w", tool.ID, err)
+		}
+		if param.Type == "path" && value != "" {
+			expanded, err := runner.ExpandHome(value)
+			if err != nil {
+				return nil, fmt.Errorf("tool %q: %w", tool.ID, err)
+			}
+			value = expanded
+		}
+		values[param.Name] = value
+	}
+	return values, nil
+}
+
 // Subscribe trả về kênh event của một lần chạy: phát lại toàn bộ lịch sử rồi
 // tiếp nối event mới. Hàm hủy trả về sẽ ngắt kênh; bỏ lỡ event nếu kênh đầy.
 func (s *Service) Subscribe(runID string) (<-chan core.Event, func(), error) {
