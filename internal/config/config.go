@@ -222,4 +222,11 @@ tags = ["media"]
   name = "out"
   type = "path"
   default = "~/Downloads"
+
+[[tool]]
+id = "auto-music-studio"
+name = "Auto Music Studio"
+kind = "app"
+app = "auto-music-studio"
+tags = ["media", "music", "electron"]
 `

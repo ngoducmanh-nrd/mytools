@@ -46,6 +46,7 @@ type AppSpec struct {
 	Python        string   `toml:"python"`
 	Requirements  string   `toml:"requirements"`
 	Entry         []string `toml:"entry"`
+	Build         []string `toml:"build"`
 	Update        []string `toml:"update"`
 	GUI           bool     `toml:"gui"`
 }

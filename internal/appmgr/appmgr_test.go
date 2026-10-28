@@ -615,6 +615,7 @@ func TestValidateSpecNode(t *testing.T) {
 		ID:            "demo",
 		Runtime:       "node",
 		Entry:         []string{"npm", "start"},
+		Build:         []string{"npm", "run", "build"},
 	}
 	if err := validateSpec(valid); err != nil {
 		t.Fatalf("node hợp lệ bị từ chối: %v", err)
@@ -623,6 +624,8 @@ func TestValidateSpecNode(t *testing.T) {
 	bad := []core.AppSpec{
 		{SchemaVersion: 1, ID: "demo", Runtime: "node"},
 		{SchemaVersion: 1, ID: "demo", Runtime: "node", Entry: []string{"../npm", "start"}},
+		{SchemaVersion: 1, ID: "demo", Runtime: "node", Entry: []string{"npm", "start"}, Build: []string{"../npm", "run", "build"}},
+		{SchemaVersion: 1, ID: "demo", Runtime: "python", Entry: []string{"python", "main.py"}, Build: []string{"npm", "run", "build"}},
 	}
 	for _, spec := range bad {
 		if err := validateSpec(spec); err == nil {
@@ -638,6 +641,7 @@ func TestInstallLocalSkipsJunkDirs(t *testing.T) {
 id = "music-app"
 runtime = "node"
 entry = ["npm", "start"]
+build = ["npm", "run", "build"]
 `,
 		"package.json":                  `{"name":"music-app"}`,
 		"src/main.ts":                   "export {};\n",
@@ -666,6 +670,9 @@ entry = ["npm", "start"]
 	}
 	if app.Runtime != "node" {
 		t.Fatalf("Runtime = %q, muốn node", app.Runtime)
+	}
+	if strings.Join(app.Build, " ") != "npm run build" {
+		t.Fatalf("Build = %v, muốn [npm run build]", app.Build)
 	}
 
 	for _, name := range []string{"package.json", "src/main.ts"} {

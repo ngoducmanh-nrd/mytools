@@ -593,6 +593,14 @@ func validateSpec(spec core.AppSpec) error {
 	if spec.Runtime == "" {
 		return errors.New(`runtime: thiếu trường bắt buộc "runtime"`)
 	}
+	if len(spec.Build) > 0 {
+		if spec.Runtime != "node" {
+			return errors.New(`build: chỉ hỗ trợ runtime "node"`)
+		}
+		if err := validateEntryFile(spec.Build[0]); err != nil {
+			return fmt.Errorf("build[0]: %w", err)
+		}
+	}
 
 	switch spec.Runtime {
 	case "binary":

@@ -84,7 +84,8 @@ func TestEnsureInit(t *testing.T) {
 	movies := strings.Index(string(toolsData), `id = "movies"`)
 	webmy := strings.Index(string(toolsData), `id = "webmy"`)
 	dl := strings.Index(string(toolsData), `id = "dl"`)
-	if movies < 0 || webmy < 0 || dl < 0 {
+	music := strings.Index(string(toolsData), `id = "auto-music-studio"`)
+	if movies < 0 || webmy < 0 || dl < 0 || music < 0 {
 		t.Fatalf("tools.toml missing default tools:\n%s", toolsData)
 	}
 	if movies > webmy || webmy > dl {

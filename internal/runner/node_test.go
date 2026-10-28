@@ -11,17 +11,18 @@ import (
 	"mytools/internal/core"
 )
 
-// fakeNpm đặt một npm giả ở đầu PATH; npm-ran.txt được ghi vào thư mục làm việc.
+// fakeNpm đặt một npm giả ở đầu PATH; npm-ran.txt ghi khi install,
+// npm-build-ran.txt ghi khi chạy script build.
 func fakeNpm(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	if runtime.GOOS == "windows" {
-		content := "@echo off\r\necho fake npm install\r\necho installed> npm-ran.txt\r\nexit /b 0\r\n"
+		content := "@echo off\r\necho fake npm %*\r\nif \"%1\"==\"install\" echo installed> npm-ran.txt\r\nif \"%1\"==\"run\" echo built> npm-build-ran.txt\r\nexit /b 0\r\n"
 		if err := os.WriteFile(filepath.Join(dir, "npm.cmd"), []byte(content), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	} else {
-		content := "#!/bin/sh\nprintf 'fake npm install\\n'\n: > npm-ran.txt\n"
+		content := "#!/bin/sh\nprintf 'fake npm %s\\n' \"$*\"\nif [ \"$1\" = \"install\" ]; then : > npm-ran.txt; fi\nif [ \"$1\" = \"run\" ]; then : > npm-build-ran.txt; fi\n"
 		if err := os.WriteFile(filepath.Join(dir, "npm"), []byte(content), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -114,6 +115,62 @@ func TestInstallNodeSkipsWhenNodeModulesExists(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(appDir, "npm-ran.txt")); !os.IsNotExist(err) {
 		t.Fatalf("npm install không được chạy khi đã có node_modules: %v", err)
+	}
+}
+
+func TestInstallNodeRunsBuild(t *testing.T) {
+	fakeNpm(t)
+	appDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(appDir, "package.json"), []byte(`{"name":"demo"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := core.App{
+		AppSpec: core.AppSpec{
+			ID:      "demo",
+			Runtime: "node",
+			Entry:   []string{"npm", "start"},
+			Build:   []string{"npm", "run", "build"},
+		},
+		Dir: appDir,
+	}
+
+	if err := InstallNode(context.Background(), app, nil); err != nil {
+		t.Fatalf("InstallNode: %v", err)
+	}
+	for _, name := range []string{"npm-ran.txt", "npm-build-ran.txt"} {
+		if _, err := os.Stat(filepath.Join(appDir, name)); err != nil {
+			t.Fatalf("thiếu marker %s: %v", name, err)
+		}
+	}
+}
+
+func TestInstallNodeBuildWithExistingNodeModules(t *testing.T) {
+	fakeNpm(t)
+	appDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(appDir, "package.json"), []byte(`{"name":"demo"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(appDir, "node_modules"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	app := core.App{
+		AppSpec: core.AppSpec{
+			ID:      "demo",
+			Runtime: "node",
+			Entry:   []string{"npm", "start"},
+			Build:   []string{"npm", "run", "build"},
+		},
+		Dir: appDir,
+	}
+
+	if err := InstallNode(context.Background(), app, nil); err != nil {
+		t.Fatalf("InstallNode: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(appDir, "npm-ran.txt")); !os.IsNotExist(err) {
+		t.Fatalf("npm install không được chạy khi đã có node_modules: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(appDir, "npm-build-ran.txt")); err != nil {
+		t.Fatalf("build không chạy dù đã có node_modules: %v", err)
 	}
 }
 
