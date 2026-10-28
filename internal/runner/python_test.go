@@ -122,6 +122,37 @@ func TestPythonCommandRequiresVenv(t *testing.T) {
 	}
 }
 
+func TestPythonCommandIsolatesPipCache(t *testing.T) {
+	cacheRoot := t.TempDir()
+	app := core.App{
+		AppSpec:  core.AppSpec{ID: "demo", Runtime: "python", Entry: []string{"python", "main.py"}},
+		Dir:      t.TempDir(),
+		CacheDir: cacheRoot,
+	}
+	venvPython, err := venvPythonPath(app.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(venvPython), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(venvPython, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, err := PythonCommand(context.Background(), app, nil)
+	if err != nil {
+		t.Fatalf("PythonCommand: %v", err)
+	}
+	want := "PIP_CACHE_DIR=" + filepath.Join(cacheRoot, "pip")
+	if !slices.Contains(cmd.Env, want) {
+		t.Fatalf("cmd.Env thiếu %q: %v", want, cmd.Env)
+	}
+	if _, err := os.Stat(filepath.Join(cacheRoot, "pip")); err != nil {
+		t.Fatalf("thư mục cache pip không được tạo: %v", err)
+	}
+}
+
 func TestVenvPythonPath(t *testing.T) {
 	path, err := venvPythonPath(filepath.Join(t.TempDir(), "app"))
 	if err != nil {

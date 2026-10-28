@@ -1,0 +1,4 @@
+schema_version = 1
+id = 'npx-tool'
+runtime = 'node'
+entry = ['npx', '--version']

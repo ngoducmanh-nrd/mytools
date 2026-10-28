@@ -6,12 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"mytools/internal/appmgr"
 	"mytools/internal/core"
+	"mytools/internal/runner"
 )
 
 const testToolsTOML = `schema_version = 1
@@ -510,6 +512,154 @@ func serviceHelperCommand() *exec.Cmd {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestServiceHelper$")
 	cmd.Env = append(os.Environ(), "GO_WANT_SERVICE_HELPER=ask")
 	return cmd
+}
+
+func TestNpxToolAsksBeforeRun(t *testing.T) {
+	// npx giả trên PATH: chỉ ghi marker khi chạy thật (không phải --help sau cài),
+	// không đụng tới mạng.
+	fakeDir := t.TempDir()
+	name := "npx"
+	script := "#!/bin/sh\nprintf 'fake npx %s\\n' \"$*\"\ncase \"$*\" in *--help*) exit 0;; esac\necho ran > npx-ran.txt\n"
+	if runtime.GOOS == "windows" {
+		name = "npx.cmd"
+		script = "@echo off\r\necho fake npx %*\r\necho.%* | findstr /c:\"--help\" >nul && exit /b 0\r\necho ran> npx-ran.txt\r\nexit /b 0\r\n"
+	}
+	if err := os.WriteFile(filepath.Join(fakeDir, name), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	s := newTestService(t)
+
+	// Mock tool node chạy bằng npx; cài từ thư mục local.
+	mockDir := t.TempDir()
+	appTOML := "schema_version = 1\nid = 'npx-tool'\nruntime = 'node'\nentry = ['npx', 'some-package']\n"
+	if err := os.WriteFile(filepath.Join(mockDir, "app.toml"), []byte(appTOML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	installRun, err := s.InstallTool(context.Background(), mockDir)
+	if err != nil {
+		t.Fatalf("InstallTool: %v", err)
+	}
+	installCh, _, err := s.Subscribe(installRun)
+	if err != nil {
+		t.Fatalf("Subscribe install: %v", err)
+	}
+	waitEvent := func(t *testing.T, ch <-chan core.Event, kind string) core.Event {
+		t.Helper()
+		deadline := time.Now().Add(15 * time.Second)
+		for {
+			select {
+			case event, ok := <-ch:
+				if !ok {
+					t.Fatalf("kênh đóng trước khi nhận %q", kind)
+				}
+				if event.Kind == kind {
+					return event
+				}
+			case <-time.After(time.Until(deadline)):
+				t.Fatalf("hết giờ chờ event %q", kind)
+			}
+		}
+	}
+	installResult := waitEvent(t, installCh, "result")
+	if installResult.Data["ok"] != true {
+		t.Fatalf("cài npx-tool thất bại: %+v", installResult)
+	}
+
+	app, err := s.mgr.LoadApp("npx-tool")
+	if err != nil {
+		t.Fatalf("LoadApp: %v", err)
+	}
+	if app.TrustedNpx {
+		t.Fatal("state.json sau khi cài phải có trusted_npx = false")
+	}
+	if app.CacheDir != filepath.Join(s.dir, "cache") {
+		t.Fatalf("CacheDir = %q, muốn %q", app.CacheDir, filepath.Join(s.dir, "cache"))
+	}
+
+	// Lần chạy 1: có cảnh báo ask; trả lời "n" thì hủy, không chạy npx.
+	run1, err := s.RunTool(context.Background(), "npx-tool", nil, "")
+	if err != nil {
+		t.Fatalf("RunTool lần 1: %v", err)
+	}
+	ch1, _, err := s.Subscribe(run1)
+	if err != nil {
+		t.Fatalf("Subscribe run1: %v", err)
+	}
+	ask1 := waitEvent(t, ch1, "ask")
+	if ask1.Text != runner.NpxWarning {
+		t.Fatalf("ask text = %q", ask1.Text)
+	}
+	if err := s.Answer(run1, "n"); err != nil {
+		t.Fatalf("Answer n: %v", err)
+	}
+	if result := waitEvent(t, ch1, "result"); result.Data["ok"] != false || result.Text != "Đã hủy." {
+		t.Fatalf("result sau n = %+v", result)
+	}
+	if _, err := os.Stat(filepath.Join(app.Dir, "npx-ran.txt")); !os.IsNotExist(err) {
+		t.Fatalf("npx không được chạy khi từ chối: %v", err)
+	}
+
+	// Lần chạy 2: vẫn hỏi; trả lời "y" thì chạy và ghi nhớ.
+	run2, err := s.RunTool(context.Background(), "npx-tool", nil, "")
+	if err != nil {
+		t.Fatalf("RunTool lần 2: %v", err)
+	}
+	ch2, _, err := s.Subscribe(run2)
+	if err != nil {
+		t.Fatalf("Subscribe run2: %v", err)
+	}
+	if ask := waitEvent(t, ch2, "ask"); ask.Text != runner.NpxWarning {
+		t.Fatalf("ask lần 2 = %q", ask.Text)
+	}
+	if err := s.Answer(run2, "y"); err != nil {
+		t.Fatalf("Answer y: %v", err)
+	}
+	if result := waitEvent(t, ch2, "result"); result.Data["ok"] != true {
+		t.Fatalf("result sau y = %+v", result)
+	}
+	if _, err := os.Stat(filepath.Join(app.Dir, "npx-ran.txt")); err != nil {
+		t.Fatalf("npx phải chạy sau khi đồng ý: %v", err)
+	}
+	app, err = s.mgr.LoadApp("npx-tool")
+	if err != nil {
+		t.Fatalf("LoadApp sau y: %v", err)
+	}
+	if !app.TrustedNpx {
+		t.Fatal("state.json sau khi đồng ý phải có trusted_npx = true")
+	}
+
+	// Lần chạy 3: không hỏi lại, chạy thẳng.
+	run3, err := s.RunTool(context.Background(), "npx-tool", nil, "")
+	if err != nil {
+		t.Fatalf("RunTool lần 3: %v", err)
+	}
+	ch3, _, err := s.Subscribe(run3)
+	if err != nil {
+		t.Fatalf("Subscribe run3: %v", err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		select {
+		case event, ok := <-ch3:
+			if !ok {
+				t.Fatal("kênh đóng trước khi có result")
+			}
+			if event.Kind == "ask" {
+				t.Fatal("lần chạy sau khi tin cậy không được hỏi lại")
+			}
+			if event.Kind == "result" {
+				if event.Data["ok"] != true {
+					t.Fatalf("result lần 3 = %+v", event)
+				}
+				return
+			}
+		case <-time.After(time.Until(deadline)):
+			t.Fatal("hết giờ chờ result lần 3")
+		}
+	}
 }
 
 func TestServiceHelper(t *testing.T) {

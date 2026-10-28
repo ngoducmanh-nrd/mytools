@@ -64,6 +64,79 @@ func TestNodeCommandResolvesNpm(t *testing.T) {
 	}
 }
 
+func TestNodeCommandStripsElectronRunAsNodeForGUI(t *testing.T) {
+	fakeNpm(t)
+	t.Setenv("ELECTRON_RUN_AS_NODE", "1")
+	appDir := t.TempDir()
+	app := core.App{
+		AppSpec: core.AppSpec{ID: "gui-app", Runtime: "node", Entry: []string{"npm", "start"}, GUI: true},
+		Dir:     appDir,
+	}
+
+	cmd, err := NodeCommand(context.Background(), app, nil)
+	if err != nil {
+		t.Fatalf("NodeCommand: %v", err)
+	}
+	for _, entry := range cmd.Env {
+		if key, _, ok := strings.Cut(entry, "="); ok && strings.EqualFold(key, "ELECTRON_RUN_AS_NODE") {
+			t.Fatalf("GUI app không được giữ ELECTRON_RUN_AS_NODE trong env: %q", entry)
+		}
+	}
+
+	app.GUI = false
+	cmd, err = NodeCommand(context.Background(), app, nil)
+	if err != nil {
+		t.Fatalf("NodeCommand: %v", err)
+	}
+	if cmd.Env != nil {
+		t.Fatalf("app không GUI phải kế thừa env của tiến trình mt, Env = %v", cmd.Env)
+	}
+}
+
+func TestNodeCommandIsolatesNpmCache(t *testing.T) {
+	fakeNpm(t)
+	cacheRoot := t.TempDir()
+	app := core.App{
+		AppSpec:  core.AppSpec{ID: "demo", Runtime: "node", Entry: []string{"npm", "start"}},
+		Dir:      t.TempDir(),
+		CacheDir: cacheRoot,
+	}
+
+	cmd, err := NodeCommand(context.Background(), app, nil)
+	if err != nil {
+		t.Fatalf("NodeCommand: %v", err)
+	}
+	want := "npm_config_cache=" + filepath.Join(cacheRoot, "npm")
+	found := false
+	for _, entry := range cmd.Env {
+		if entry == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("cmd.Env thiếu %q", want)
+	}
+	if _, err := os.Stat(filepath.Join(cacheRoot, "npm")); err != nil {
+		t.Fatalf("thư mục cache npm không được tạo: %v", err)
+	}
+}
+
+func TestUsesNpx(t *testing.T) {
+	if UsesNpx(core.App{AppSpec: core.AppSpec{Runtime: "node", Entry: []string{"npx", "x"}}}) != true {
+		t.Fatal("entry npx phải được nhận diện")
+	}
+	if UsesNpx(core.App{AppSpec: core.AppSpec{Runtime: "node", Entry: []string{"npm", "start"}}}) {
+		t.Fatal("entry npm không phải npx")
+	}
+	if UsesNpx(core.App{AppSpec: core.AppSpec{Runtime: "python", Entry: []string{"npx", "x"}}}) {
+		t.Fatal("npx chỉ áp dụng cho runtime node")
+	}
+	if UsesNpx(core.App{AppSpec: core.AppSpec{Runtime: "node"}}) {
+		t.Fatal("entry rỗng không phải npx")
+	}
+}
+
 func TestNodeCommandRejectsInvalidApp(t *testing.T) {
 	cases := []core.App{
 		{AppSpec: core.AppSpec{ID: "demo", Runtime: "python", Entry: []string{"python", "main.py"}}, Dir: t.TempDir()},

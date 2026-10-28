@@ -66,7 +66,7 @@ func InstallPython(ctx context.Context, app core.App, out chan<- core.Event) err
 
 	if reqPath != "" && (venvCreated || app.RequirementsHash != reqHash) {
 		emit(out, core.Event{RunID: app.ID, Kind: "log", Text: "Đang cài requirements từ " + app.Requirements})
-		if installErr := installRequirements(ctx, venvPython, reqPath, app.Dir); installErr != nil {
+		if installErr := installRequirements(ctx, venvPython, reqPath, app.Dir, app.CacheDir); installErr != nil {
 			return installErr
 		}
 	}
@@ -115,6 +115,13 @@ func PythonCommand(ctx context.Context, app core.App, args []string) (*exec.Cmd,
 	cmd := exec.CommandContext(ctx, venvPython, commandArgs...)
 	cmd.Dir = app.Dir
 	cmd.Env = append(os.Environ(), "PYTHONIOENCODING=utf-8")
+	if app.CacheDir != "" {
+		env, err := cacheEnv(cmd.Env, app.CacheDir, "pip", "PIP_CACHE_DIR")
+		if err != nil {
+			return nil, err
+		}
+		cmd.Env = env
+	}
 	return cmd, nil
 }
 
@@ -181,7 +188,7 @@ func createVenv(ctx context.Context, interpreter pythonInterpreter, envDir strin
 	return nil
 }
 
-func installRequirements(ctx context.Context, venvPython, reqPath, appDir string) error {
+func installRequirements(ctx context.Context, venvPython, reqPath, appDir, cacheDir string) error {
 	cmd := exec.CommandContext(ctx, venvPython,
 		"-m", "pip", "install",
 		"--disable-pip-version-check",
@@ -192,6 +199,13 @@ func installRequirements(ctx context.Context, venvPython, reqPath, appDir string
 		"-r", reqPath,
 	)
 	cmd.Dir = appDir
+	if cacheDir != "" {
+		env, err := cacheEnv(os.Environ(), cacheDir, "pip", "PIP_CACHE_DIR")
+		if err != nil {
+			return err
+		}
+		cmd.Env = env
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() != nil {

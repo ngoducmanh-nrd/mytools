@@ -37,6 +37,17 @@ func New(dataDir string) *Manager {
 	return &Manager{dataDir: dataDir}
 }
 
+// newApp dựng core.App kèm CacheDir trỏ tới thư mục cache chung của mt
+// (<dataDir>/cache) để runner nhốt cache pip/npm vào trong mytools.
+func (m *Manager) newApp(spec core.AppSpec, state core.AppState, dir string) *core.App {
+	return &core.App{
+		AppSpec:  spec,
+		AppState: state,
+		Dir:      dir,
+		CacheDir: filepath.Join(m.dataDir, "cache"),
+	}
+}
+
 func BuiltinSpec(id string) (core.AppSpec, bool) {
 	switch id {
 	case "yt-dlp":
@@ -100,7 +111,7 @@ func (m *Manager) LoadApp(id string) (*core.App, error) {
 		return nil, fmt.Errorf("app %q: %w", id, err)
 	}
 
-	return &core.App{AppSpec: *spec, AppState: state, Dir: dir}, nil
+	return m.newApp(*spec, state, dir), nil
 }
 
 func (m *Manager) Add(spec core.AppSpec) (*core.App, error) {
@@ -132,7 +143,7 @@ func (m *Manager) Add(spec core.AppSpec) (*core.App, error) {
 		return nil, err
 	}
 
-	return &core.App{AppSpec: spec, Dir: dir}, nil
+	return m.newApp(spec, core.AppState{}, dir), nil
 }
 
 func (m *Manager) CloneGit(ctx context.Context, rawURL, ref string) (*core.App, error) {
@@ -177,7 +188,7 @@ func (m *Manager) CloneGit(ctx context.Context, rawURL, ref string) (*core.App, 
 		return nil, fmt.Errorf("đặt app %q vào %s: %w", spec.ID, dir, err)
 	}
 	installed = true
-	return &core.App{AppSpec: *spec, Dir: dir}, nil
+	return m.newApp(*spec, core.AppState{}, dir), nil
 }
 
 // InstallGit clone repo không cần app.toml sẵn: ghi spec do người gọi cung cấp
@@ -217,7 +228,7 @@ func (m *Manager) InstallGit(ctx context.Context, rawURL string, spec core.AppSp
 		return nil, fmt.Errorf("đặt app %q vào %s: %w", spec.ID, dir, err)
 	}
 	installed = true
-	return &core.App{AppSpec: spec, Dir: dir}, nil
+	return m.newApp(spec, core.AppState{}, dir), nil
 }
 
 // cloneStaging clone rawURL (kèm ref tùy chọn) vào thư mục tạm trong appsDir
@@ -327,7 +338,7 @@ func (m *Manager) InstallLocal(srcDir string) (*core.App, error) {
 		return nil, fmt.Errorf("đặt app %q vào %s: %w", spec.ID, dir, err)
 	}
 	installed = true
-	return &core.App{AppSpec: *spec, Dir: dir}, nil
+	return m.newApp(*spec, core.AppState{}, dir), nil
 }
 
 // localCopySkip gồm các thư mục sinh ra khi build hoặc cài dependencies;

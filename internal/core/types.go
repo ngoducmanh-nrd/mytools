@@ -58,12 +58,14 @@ type AppState struct {
 	Version          string    `json:"version"`
 	TrustedCommit    string    `json:"trusted_commit"`
 	RequirementsHash string    `json:"requirements_hash,omitempty"`
+	TrustedNpx       bool      `json:"trusted_npx"`
 }
 
 type App struct {
 	AppSpec
 	AppState
-	Dir string `json:"-" toml:"-"`
+	Dir      string `json:"-" toml:"-"`
+	CacheDir string `json:"-" toml:"-"`
 }
 
 type Check struct {

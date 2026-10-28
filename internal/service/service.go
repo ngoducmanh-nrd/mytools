@@ -50,6 +50,18 @@ type run struct {
 	process  *exec.Cmd
 	done     bool
 	finished time.Time
+
+	// npxConfirm chứa thông tin lần chạy đang chờ người dùng xác nhận cảnh
+	// báo npx trước khi khởi động tiến trình thật.
+	npxConfirm *npxConfirm
+}
+
+type npxConfirm struct {
+	toolID   string
+	app      *core.App
+	process  *exec.Cmd
+	runArgs  []string
+	detached bool
 }
 
 func New(dataDir string) *Service {
@@ -135,6 +147,21 @@ func (s *Service) RunTool(ctx context.Context, id string, params map[string]stri
 	s.runs[runID] = &run{id: runID, subs: make(map[chan core.Event]struct{})}
 	s.mu.Unlock()
 
+	if runner.UsesNpx(*app) && !app.TrustedNpx {
+		detached := registry.IsDetached(tool.Lifecycle, app)
+		s.publish(runID, core.Event{RunID: runID, Kind: "ask", Text: runner.NpxWarning})
+		s.mu.Lock()
+		s.runs[runID].npxConfirm = &npxConfirm{
+			toolID:   tool.ID,
+			app:      app,
+			process:  process,
+			runArgs:  runArgs,
+			detached: detached,
+		}
+		s.mu.Unlock()
+		return runID, nil
+	}
+
 	if registry.IsDetached(tool.Lifecycle, app) {
 		go s.runDetached(runID, tool.ID, app, process, runArgs)
 	} else {
@@ -177,15 +204,24 @@ func (s *Service) Subscribe(runID string) (<-chan core.Event, func(), error) {
 	return ch, unsubscribe, nil
 }
 
-// Answer gửi một dòng câu trả lời vào stdin của lần chạy đang chờ nhập liệu.
+// Answer gửi một dòng câu trả lời vào stdin của lần chạy đang chờ nhập liệu;
+// với lần chạy đang chờ xác nhận cảnh báo npx thì "y" khởi động tool và ghi
+// nhớ lựa chọn, câu khác hủy lần chạy.
 func (s *Service) Answer(runID, answer string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	r := s.runs[runID]
 	if r == nil {
+		s.mu.Unlock()
 		return fmt.Errorf("không có lần chạy %q", runID)
 	}
+	if r.npxConfirm != nil {
+		confirm := r.npxConfirm
+		r.npxConfirm = nil
+		s.mu.Unlock()
+		return s.confirmNpx(runID, confirm, answer)
+	}
+	defer s.mu.Unlock()
+
 	if r.done || r.stdin == nil {
 		return fmt.Errorf("lần chạy %q không chờ câu trả lời", runID)
 	}
@@ -194,6 +230,34 @@ func (s *Service) Answer(runID, answer string) error {
 		return fmt.Errorf("gửi câu trả lời cho %q: %w", runID, err)
 	}
 	return nil
+}
+
+// confirmNpx xử lý câu trả lời cảnh báo npx: "y" lưu trusted_npx = true vào
+// state.json rồi khởi động lần chạy thật; câu khác hủy.
+func (s *Service) confirmNpx(runID string, confirm *npxConfirm, answer string) error {
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+		state := confirm.app.AppState
+		state.TrustedNpx = true
+		if err := s.mgr.SaveState(confirm.app.ID, state); err != nil {
+			s.publish(runID, core.Event{RunID: runID, Kind: "error", Text: fmt.Sprintf("Không lưu được lựa chọn: %v", err)})
+			s.publish(runID, core.Event{RunID: runID, Kind: "result", Text: "Thất bại.", Data: map[string]any{"ok": false}})
+			s.finishRun(runID)
+			return err
+		}
+		confirm.app.AppState = state
+		s.publish(runID, core.Event{RunID: runID, Kind: "log", Text: "Đã xác nhận chạy npx; lần sau sẽ không hỏi lại."})
+		if confirm.detached {
+			go s.runDetached(runID, confirm.toolID, confirm.app, confirm.process, confirm.runArgs)
+		} else {
+			go s.runForeground(runID, confirm.toolID, confirm.app, confirm.process, confirm.runArgs)
+		}
+		return nil
+	default:
+		s.publish(runID, core.Event{RunID: runID, Kind: "result", Text: "Đã hủy.", Data: map[string]any{"ok": false}})
+		s.finishRun(runID)
+		return nil
+	}
 }
 
 // Cancel hủy lần chạy foreground: hủy context và giết tiến trình nếu còn sống.
@@ -206,6 +270,13 @@ func (s *Service) Cancel(runID string) error {
 	}
 	if r.done {
 		s.mu.Unlock()
+		return nil
+	}
+	if r.npxConfirm != nil {
+		r.npxConfirm = nil
+		s.mu.Unlock()
+		s.publish(runID, core.Event{RunID: runID, Kind: "result", Text: "Đã hủy.", Data: map[string]any{"ok": false}})
+		s.finishRun(runID)
 		return nil
 	}
 	cancel := r.cancel

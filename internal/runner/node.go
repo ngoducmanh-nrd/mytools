@@ -36,7 +36,49 @@ func NodeCommand(ctx context.Context, app core.App, args []string) (*exec.Cmd, e
 	commandArgs = append(commandArgs, args...)
 	cmd := exec.CommandContext(ctx, commandPath, commandArgs...)
 	cmd.Dir = app.Dir
+
+	var env []string
+	if app.GUI {
+		// ELECTRON_RUN_AS_NODE biến electron thành Node (không mở cửa sổ);
+		// môi trường khởi chạy mt (như Qoder) hay đặt biến này nên phải gỡ.
+		env = withoutEnvVar(os.Environ(), "ELECTRON_RUN_AS_NODE")
+	} else {
+		env = os.Environ()
+	}
+	if app.CacheDir != "" {
+		isolated, err := cacheEnv(env, app.CacheDir, "npm", "npm_config_cache")
+		if err != nil {
+			return nil, err
+		}
+		env = isolated
+	}
+	if app.GUI || app.CacheDir != "" {
+		cmd.Env = env
+	}
 	return cmd, nil
+}
+
+// UsesNpx báo hiệu tool node chạy bằng npx: npx có thể tải và chạy mã từ
+// Internet ngay lúc chạy nên cần người dùng xác nhận trước lần chạy đầu.
+func UsesNpx(app core.App) bool {
+	return app.Runtime == "node" && len(app.Entry) > 0 && strings.EqualFold(app.Entry[0], "npx")
+}
+
+// NpxWarning là nội dung cảnh báo hiển thị khi tool dùng npx chưa được tin cậy.
+const NpxWarning = "CẢNH BÁO: Tool này sử dụng 'npx', có thể tải và chạy mã độc từ Internet. Bạn có chắc chắn muốn chạy? (y/N)"
+
+// withoutEnvVar trả về bản sao env đã bỏ biến name (so khớp tên không phân
+// biệt hoa thường, như quy ước của Windows).
+func withoutEnvVar(env []string, name string) []string {
+	filtered := make([]string, 0, len(env))
+	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(key, name) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
 }
 
 // InstallNode cài dependencies bằng npm nếu app chưa có node_modules, sau đó
@@ -85,6 +127,13 @@ func InstallNode(ctx context.Context, app core.App, out chan<- core.Event) error
 			emit(out, core.Event{RunID: app.ID, Kind: "log", Text: "Đang chạy npm install --no-audit --no-fund"})
 			cmd := exec.CommandContext(ctx, npmPath, "install", "--no-audit", "--no-fund")
 			cmd.Dir = app.Dir
+			if app.CacheDir != "" {
+				env, err := cacheEnv(os.Environ(), app.CacheDir, "npm", "npm_config_cache")
+				if err != nil {
+					return err
+				}
+				cmd.Env = env
+			}
 			if err := Run(ctx, cmd, app.ID, out); err != nil {
 				return fmt.Errorf("npm install thất bại: %w", err)
 			}
@@ -105,6 +154,14 @@ func InstallNode(ctx context.Context, app core.App, out chan<- core.Event) error
 			return fmt.Errorf("build %q thất bại: %w", buildCommand, err)
 		}
 		emit(out, core.Event{RunID: app.ID, Kind: "log", Text: "Đã build app Node"})
+	}
+
+	if UsesNpx(app) {
+		state := app.AppState
+		state.TrustedNpx = false
+		if err := writeState(app.Dir, state); err != nil {
+			return err
+		}
 	}
 
 	emit(out, core.Event{RunID: app.ID, Kind: "result", Text: "Môi trường Node đã sẵn sàng"})

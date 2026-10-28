@@ -103,6 +103,15 @@ func runApp(cmd *cobra.Command, mgr *appmgr.Manager, app *core.App, args []strin
 		return err
 	}
 
+	confirmed, err := confirmNpx(runCtx, cmd.InOrStdin(), cmd.OutOrStdout(), mgr, app)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), "Đã hủy.")
+		return err
+	}
+
 	if restart {
 		if err := stopRun(cmd, mgr, targetID, false); err != nil {
 			return err
@@ -229,6 +238,36 @@ func confirmGitRepo(ctx context.Context, in io.Reader, out io.Writer, mgr *appmg
 		state := app.AppState
 		state.URL = app.Source
 		state.TrustedCommit = head
+		if err := mgr.SaveState(app.ID, state); err != nil {
+			return false, err
+		}
+		app.AppState = state
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+// confirmNpx hỏi xác nhận khi tool node chạy bằng npx lần đầu: npx có thể tải
+// mã từ Internet nên cần người dùng đồng ý; "y" ghi trusted_npx vào state.json
+// để lần sau không hỏi lại.
+func confirmNpx(ctx context.Context, in io.Reader, out io.Writer, mgr *appmgr.Manager, app *core.App) (bool, error) {
+	if !runner.UsesNpx(*app) || app.TrustedNpx {
+		return true, nil
+	}
+
+	if _, err := fmt.Fprint(out, runner.NpxWarning+" "); err != nil {
+		return false, err
+	}
+	answer, err := readAnswer(in)
+	if err != nil {
+		return false, err
+	}
+
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+		state := app.AppState
+		state.TrustedNpx = true
 		if err := mgr.SaveState(app.ID, state); err != nil {
 			return false, err
 		}
