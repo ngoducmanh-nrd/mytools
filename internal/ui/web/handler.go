@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"mytools/internal/core"
 )
@@ -111,11 +112,22 @@ func (s *Server) handleAnswer(w http.ResponseWriter, r *http.Request) {
 }
 
 type installRequest struct {
+	// Định dạng cũ: chỉ có nguồn cài đặt.
 	Source string `json:"source"`
+
+	// Định dạng form chi tiết: khai báo id/kind/target... để mt tự tạo app.toml.
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Kind   string   `json:"kind"`
+	Target string   `json:"target"`
+	Entry  string   `json:"entry"`
+	Tags   []string `json:"tags"`
+	Venv   *bool    `json:"venv"`
 }
 
-// handleAppAdd nhận nguồn cài đặt, trả ngay run_id để client theo dõi log
-// cài đặt qua /api/events như một lần chạy thường.
+// handleAppAdd nhận nguồn cài đặt (định dạng cũ) hoặc payload form chi tiết,
+// trả run_id để client theo dõi log cài đặt qua /api/events như một lần chạy
+// thường. Với kind "url" chỉ ghi registry nên trả kết quả trực tiếp.
 func (s *Server) handleAppAdd(w http.ResponseWriter, r *http.Request) {
 	var req installRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
@@ -123,9 +135,24 @@ func (s *Server) handleAppAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, err := s.runner.InstallTool(r.Context(), req.Source)
+	if strings.TrimSpace(req.Source) != "" {
+		runID, err := s.runner.InstallTool(r.Context(), req.Source)
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"run_id": runID})
+		return
+	}
+
+	venv := req.Venv == nil || *req.Venv
+	runID, err := s.runner.InstallCustomTool(r.Context(), req.ID, req.Name, req.Kind, req.Target, req.Entry, req.Tags, venv)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, err)
+		return
+	}
+	if runID == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "text": fmt.Sprintf("Đã thêm tool %q.", req.Name)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"run_id": runID})

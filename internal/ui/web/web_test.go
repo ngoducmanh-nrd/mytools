@@ -32,6 +32,7 @@ type fakeRunner struct {
 	installCalls   int
 	installSources []string
 	manualCalls    []manualCall
+	customCalls    []customCall
 	installErr     error
 	removedIDs     []string
 }
@@ -39,6 +40,12 @@ type fakeRunner struct {
 type manualCall struct {
 	source, name, entry string
 	gui                 bool
+}
+
+type customCall struct {
+	id, name, kind, target, entry string
+	tags                          []string
+	venv                          bool
 }
 
 func newFakeRunner() *fakeRunner {
@@ -149,6 +156,22 @@ func (f *fakeRunner) InstallManualTool(ctx context.Context, source, name, entry 
 	return runID, nil
 }
 
+func (f *fakeRunner) InstallCustomTool(ctx context.Context, id, name, kind, target, entry string, tags []string, venv bool) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.installErr != nil {
+		return "", f.installErr
+	}
+	f.installCalls++
+	f.customCalls = append(f.customCalls, customCall{id: id, name: name, kind: kind, target: target, entry: entry, tags: tags, venv: venv})
+	if kind == "url" {
+		return "", nil
+	}
+	runID := fmt.Sprintf("install-%d", f.installCalls)
+	f.runs[runID] = &fakeRun{subs: make(map[chan core.Event]struct{})}
+	return runID, nil
+}
+
 func (f *fakeRunner) RemoveTool(id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -220,7 +243,7 @@ func TestIndexContainsToken(t *testing.T) {
 	if strings.Contains(string(body), "__MT_TOKEN__") {
 		t.Error("placeholder token chưa được thay")
 	}
-	if !strings.Contains(string(body), "Trung tâm tool") {
+	if !strings.Contains(string(body), "DevTools Workspace") {
 		t.Error("HTML thiếu nội dung giao diện")
 	}
 }
@@ -750,5 +773,78 @@ func TestToolsError(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", resp.StatusCode)
+	}
+}
+
+func TestAppAddEndpointRichPayload(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+	fake := s.runner.(*fakeRunner)
+
+	body := `{"id":"web-tool","name":"Web Tool","kind":"git","target":"https://github.com/x/y.git",` +
+		`"entry":"main.py","tags":["web","python"],"venv":true}`
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/app/add", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-MT-Token", s.Token())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var parsed map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&parsed)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("rich add: %d %v", resp.StatusCode, parsed)
+	}
+	if parsed["run_id"] != "install-1" {
+		t.Errorf("run_id = %v, want install-1", parsed["run_id"])
+	}
+
+	fake.mu.Lock()
+	calls := append([]customCall(nil), fake.customCalls...)
+	fake.mu.Unlock()
+	if len(calls) != 1 {
+		t.Fatalf("customCalls = %+v", calls)
+	}
+	got := calls[0]
+	if got.id != "web-tool" || got.name != "Web Tool" || got.kind != "git" ||
+		got.target != "https://github.com/x/y.git" || got.entry != "main.py" || !got.venv {
+		t.Errorf("customCall = %+v", got)
+	}
+	if len(got.tags) != 2 || got.tags[0] != "web" || got.tags[1] != "python" {
+		t.Errorf("tags = %v", got.tags)
+	}
+}
+
+func TestAppAddEndpointRichURLTool(t *testing.T) {
+	s, ts := newTestServer(t, newFakeRunner())
+	fake := s.runner.(*fakeRunner)
+
+	body := `{"id":"docs","name":"Tài liệu","kind":"url","target":"https://example.com/docs"}`
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/app/add", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-MT-Token", s.Token())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var parsed map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&parsed)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("url add: %d %v", resp.StatusCode, parsed)
+	}
+	if parsed["ok"] != true || parsed["run_id"] != nil {
+		t.Errorf("response = %v", parsed)
+	}
+
+	fake.mu.Lock()
+	calls := append([]customCall(nil), fake.customCalls...)
+	fake.mu.Unlock()
+	if len(calls) != 1 || calls[0].kind != "url" || calls[0].venv != true {
+		t.Errorf("customCalls = %+v", calls)
 	}
 }

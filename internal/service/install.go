@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -19,7 +21,7 @@ func (s *Service) InstallTool(ctx context.Context, source string) (string, error
 	if strings.TrimSpace(source) == "" {
 		return "", errors.New("thiếu nguồn cài đặt")
 	}
-	return s.startInstall(ctx, source, "", func(ctx context.Context, out chan<- core.Event) (*core.App, error) {
+	return s.startInstall(ctx, source, "", nil, func(ctx context.Context, out chan<- core.Event) (*core.App, error) {
 		return s.installApp(ctx, source, out)
 	})
 }
@@ -45,15 +47,116 @@ func (s *Service) InstallManualTool(ctx context.Context, source, name, entry str
 		Entry:         fields,
 		GUI:           gui,
 	}
-	return s.startInstall(ctx, source, name, func(ctx context.Context, out chan<- core.Event) (*core.App, error) {
-		return s.installGitSpec(ctx, source, spec, out)
+	return s.startInstall(ctx, source, name, nil, func(ctx context.Context, out chan<- core.Event) (*core.App, error) {
+		return s.installGitSpec(ctx, source, spec, true, out)
+	})
+}
+
+// InstallCustomTool cài tool từ form chi tiết của web: kind quyết định cách
+// cài (git/cli/gui: clone repo rồi chạy bằng python; binary: tải file thực
+// thi; url: chỉ thêm link vào registry). Trả runID rỗng khi không cần chạy
+// nền (kind url).
+func (s *Service) InstallCustomTool(ctx context.Context, id, name, kind, target, entry string, tags []string, venv bool) (string, error) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", errors.New("thiếu nguồn cài đặt (target)")
+	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	appID, err := customAppID(id)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(name) == "" {
+		name = appID
+	}
+
+	switch kind {
+	case "url":
+		if err := addURLTool(s.dir, appID, name, target, tags); err != nil {
+			return "", err
+		}
+		return "", nil
+	case "binary":
+		spec, err := customBinarySpec(appID, target, entry)
+		if err != nil {
+			return "", err
+		}
+		return s.startInstall(ctx, target, name, tags, func(ctx context.Context, out chan<- core.Event) (*core.App, error) {
+			return s.installBinarySpec(ctx, spec, out)
+		})
+	case "git", "cli", "gui":
+		fields, err := customEntry(entry)
+		if err != nil {
+			return "", err
+		}
+		spec := core.AppSpec{SchemaVersion: 1, ID: appID, Runtime: "python", Entry: fields, GUI: kind == "gui"}
+		return s.startInstall(ctx, target, name, tags, func(ctx context.Context, out chan<- core.Event) (*core.App, error) {
+			return s.installGitSpec(ctx, target, spec, venv, out)
+		})
+	default:
+		return "", fmt.Errorf("kind %q không hợp lệ (chọn git, binary, cli, gui hoặc url)", kind)
+	}
+}
+
+// customAppID chuẩn hóa id do người dùng nhập ở form cài đặt.
+func customAppID(id string) (string, error) {
+	appID := appmgr.SanitizeAppID(strings.TrimSpace(id))
+	if appID == "" || appID[0] < 'a' || appID[0] > 'z' {
+		return "", fmt.Errorf("id app %q không hợp lệ (bắt đầu bằng chữ cái, chỉ nhận a-z, 0-9, \"-\", \"_\")", id)
+	}
+	return appID, nil
+}
+
+// customEntry nhận entry dạng "main.py" hoặc "python main.py" và trả về
+// mảng lệnh chạy python hợp lệ cho app.toml.
+func customEntry(entry string) ([]string, error) {
+	fields := strings.Fields(entry)
+	if len(fields) == 0 {
+		return nil, errors.New("thiếu lệnh chạy (entry), ví dụ \"main.py\" hoặc \"python main.py\"")
+	}
+	if strings.EqualFold(fields[0], "python") {
+		if len(fields) < 2 {
+			return nil, errors.New(`lệnh chạy phải kèm file, ví dụ "python main.py"`)
+		}
+		fields[0] = "python"
+		return fields, nil
+	}
+	return append([]string{"python"}, fields...), nil
+}
+
+func customBinarySpec(id, target, entry string) (core.AppSpec, error) {
+	parsed, err := url.Parse(target)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return core.AppSpec{}, fmt.Errorf("target %q phải là URL http/https trỏ tới file binary", target)
+	}
+	name := strings.TrimSpace(entry)
+	if name == "" {
+		name = path.Base(parsed.Path)
+	}
+	if name == "." || name == "/" || name == "" {
+		return core.AppSpec{}, fmt.Errorf("không suy ra được tên file từ URL %q; điền entry", target)
+	}
+	return core.AppSpec{SchemaVersion: 1, ID: id, Runtime: "binary", Download: target, Entry: []string{name}}, nil
+}
+
+func addURLTool(dir, id, name, target string, tags []string) error {
+	parsed, err := url.Parse(target)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fmt.Errorf("target %q phải là URL http/https", target)
+	}
+	return registry.AddTool(filepath.Join(dir, "tools.toml"), core.Tool{
+		ID:     id,
+		Name:   name,
+		Kind:   "url",
+		Target: target,
+		Tags:   tags,
 	})
 }
 
 // startInstall tạo runID và chạy hàm cài đặt trong goroutine; install nhận
 // kênh out để phát log, trả về app vừa cài (hoặc lỗi). toolName là tên hiển
-// thị khi ghi tool vào registry (rỗng thì dùng id app).
-func (s *Service) startInstall(ctx context.Context, source, toolName string, install func(context.Context, chan<- core.Event) (*core.App, error)) (string, error) {
+// thị và tags là nhãn khi ghi tool vào registry.
+func (s *Service) startInstall(ctx context.Context, source, toolName string, tags []string, install func(context.Context, chan<- core.Event) (*core.App, error)) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -73,7 +176,7 @@ func (s *Service) startInstall(ctx context.Context, source, toolName string, ins
 	s.runs[runID] = &run{id: runID, subs: make(map[chan core.Event]struct{})}
 	s.mu.Unlock()
 
-	go s.installRun(ctx, runID, source, toolName, install)
+	go s.installRun(ctx, runID, source, toolName, tags, install)
 	return runID, nil
 }
 
@@ -110,7 +213,7 @@ func (s *Service) RemoveTool(id string) error {
 	return registry.RemoveTool(filepath.Join(s.dir, "tools.toml"), id)
 }
 
-func (s *Service) installRun(ctx context.Context, runID, source, toolName string, install func(context.Context, chan<- core.Event) (*core.App, error)) {
+func (s *Service) installRun(ctx context.Context, runID, source, toolName string, tags []string, install func(context.Context, chan<- core.Event) (*core.App, error)) {
 	out := make(chan core.Event, 64)
 	forwardDone := make(chan struct{})
 	go func() {
@@ -148,7 +251,7 @@ func (s *Service) installRun(ctx context.Context, runID, source, toolName string
 		return
 	}
 
-	if err := s.registerTool(app.ID, toolName); err != nil {
+	if err := s.registerTool(app.ID, toolName, tags); err != nil {
 		// Rollback app vừa cài để người dùng có thể cài lại từ đầu.
 		if cleanupErr := s.mgr.Remove(app.ID); cleanupErr != nil {
 			err = fmt.Errorf("%w (không dọn được thư mục app: %v)", err, cleanupErr)
@@ -179,20 +282,36 @@ func manualEntry(entry string) ([]string, error) {
 	return fields, nil
 }
 
-func (s *Service) installGitSpec(ctx context.Context, source string, spec core.AppSpec, out chan<- core.Event) (*core.App, error) {
+func (s *Service) installGitSpec(ctx context.Context, source string, spec core.AppSpec, createVenv bool, out chan<- core.Event) (*core.App, error) {
 	emit(out, core.Event{Kind: "log", Text: fmt.Sprintf("Đang clone %s...", source)})
 	app, err := s.mgr.InstallGit(ctx, source, spec)
 	if err != nil {
 		return nil, err
 	}
 	emit(out, core.Event{Kind: "log", Text: fmt.Sprintf("Đã clone app %q và tạo app.toml.", app.ID)})
+	if !createVenv {
+		emit(out, core.Event{Kind: "log", Text: fmt.Sprintf("Bỏ qua tạo venv theo lựa chọn; chạy \"mt app rebuild %s\" khi cần.", app.ID)})
+		return app, nil
+	}
 	if err := s.installRuntime(ctx, *app, out); err != nil {
 		return nil, removeOnFailure(s.mgr, *app, err)
 	}
 	return app, nil
 }
 
-func (s *Service) registerTool(id, name string) error {
+func (s *Service) installBinarySpec(ctx context.Context, spec core.AppSpec, out chan<- core.Event) (*core.App, error) {
+	emit(out, core.Event{Kind: "log", Text: fmt.Sprintf("Đang cài app %q từ %s...", spec.ID, spec.Download)})
+	app, err := s.mgr.Add(spec)
+	if err != nil {
+		return nil, err
+	}
+	if err := runner.Install(ctx, *app, out); err != nil {
+		return nil, removeOnFailure(s.mgr, *app, err)
+	}
+	return app, nil
+}
+
+func (s *Service) registerTool(id, name string, tags []string) error {
 	path := filepath.Join(s.dir, "tools.toml")
 	tools, err := registry.Load(path)
 	if err != nil {
@@ -204,7 +323,7 @@ func (s *Service) registerTool(id, name string) error {
 	if name == "" {
 		name = id
 	}
-	return registry.AddTool(path, core.Tool{ID: id, Name: name, Kind: "app", App: id})
+	return registry.AddTool(path, core.Tool{ID: id, Name: name, Kind: "app", App: id, Tags: tags})
 }
 
 func (s *Service) installApp(ctx context.Context, source string, out chan<- core.Event) (*core.App, error) {

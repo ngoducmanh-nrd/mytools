@@ -205,6 +205,41 @@ func TestSubscribeReplayAndPublish(t *testing.T) {
 	}
 }
 
+func TestFinishRunClosesSubscribers(t *testing.T) {
+	s := newTestService(t)
+	runID := "run-finish"
+	s.mu.Lock()
+	s.runs[runID] = &run{id: runID, subs: make(map[chan core.Event]struct{})}
+	s.mu.Unlock()
+
+	ch, unsubscribe, err := s.Subscribe(runID)
+	if err != nil {
+		t.Fatalf("Subscribe: %v", err)
+	}
+	s.publish(runID, core.Event{RunID: runID, Kind: "result", Text: "xong"})
+	s.finishRun(runID)
+
+	if event := <-ch; event.Text != "xong" {
+		t.Errorf("event cuối = %+v", event)
+	}
+	if _, ok := <-ch; ok {
+		t.Error("kênh phải đóng sau finishRun")
+	}
+	unsubscribe()
+
+	late, lateUnsubscribe, err := s.Subscribe(runID)
+	if err != nil {
+		t.Fatalf("Subscribe sau khi xong: %v", err)
+	}
+	if event := <-late; event.Text != "xong" {
+		t.Errorf("replay sau khi xong = %+v", event)
+	}
+	if _, ok := <-late; ok {
+		t.Error("subscribe muộn phải nhận kênh đã đóng")
+	}
+	lateUnsubscribe()
+}
+
 func TestAnswer(t *testing.T) {
 	s := newTestService(t)
 	pr, pw := newPipe(t)

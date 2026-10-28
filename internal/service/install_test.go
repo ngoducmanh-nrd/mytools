@@ -496,3 +496,208 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 	}
 	return string(output)
 }
+
+func fileURL(t *testing.T, path string) string {
+	t.Helper()
+	raw := "file://" + filepath.ToSlash(path)
+	if runtime.GOOS == "windows" {
+		raw = "file:///" + filepath.ToSlash(path)
+	}
+	return raw
+}
+
+func newPythonRepo(t *testing.T, files map[string]string) string {
+	t.Helper()
+	repo := t.TempDir()
+	for name, content := range files {
+		path := filepath.Join(repo, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitIn(t, repo, "init", "--quiet")
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "--quiet", "-m", "init")
+	return repo
+}
+
+func TestInstallCustomToolGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("không có git trong PATH")
+	}
+	s := newTestService(t)
+	repo := newPythonRepo(t, map[string]string{"main.py": "print('hi')\n"})
+	source := fileURL(t, repo)
+
+	runID, err := s.InstallCustomTool(context.Background(), "Rea Tool", "Rea Tool", "git", source, "main.py", []string{"ai", "python"}, true)
+	if err != nil {
+		t.Fatalf("InstallCustomTool: %v", err)
+	}
+	events := waitInstallEvents(t, s, runID)
+	var result *core.Event
+	for i := range events {
+		if events[i].Kind == "result" {
+			result = &events[i]
+		}
+	}
+	if result == nil || result.Data["ok"] != true || result.Data["id"] != "rea-tool" {
+		t.Fatalf("result = %+v", result)
+	}
+
+	app, err := s.mgr.LoadApp("rea-tool")
+	if err != nil {
+		t.Fatalf("LoadApp: %v", err)
+	}
+	if app.Runtime != "python" || len(app.Entry) != 2 || app.Entry[0] != "python" || app.Entry[1] != "main.py" || app.GUI {
+		t.Errorf("app spec = %+v", app.AppSpec)
+	}
+	if _, err := os.Stat(filepath.Join(s.dir, "apps", "rea-tool", "env")); err != nil {
+		t.Errorf("thiếu venv: %v", err)
+	}
+
+	tools, err := s.ListTools()
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	got := findTool(tools, "rea-tool")
+	if got == nil || got.Name != "Rea Tool" || got.Kind != "app" || got.App != "rea-tool" {
+		t.Fatalf("tool = %+v", got)
+	}
+	if len(got.Tags) != 2 || got.Tags[0] != "ai" || got.Tags[1] != "python" {
+		t.Errorf("tags = %v", got.Tags)
+	}
+}
+
+func TestInstallCustomToolGitGUIEntryWithPythonPrefix(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("không có git trong PATH")
+	}
+	s := newTestService(t)
+	repo := newPythonRepo(t, map[string]string{"app.py": "print('gui')\n"})
+	source := fileURL(t, repo)
+
+	runID, err := s.InstallCustomTool(context.Background(), "gui-tool", "GUI Tool", "gui", source, "python app.py", nil, true)
+	if err != nil {
+		t.Fatalf("InstallCustomTool: %v", err)
+	}
+	events := waitInstallEvents(t, s, runID)
+	last := events[len(events)-1]
+	if last.Kind != "result" || last.Data["ok"] != true {
+		t.Fatalf("events = %+v", events)
+	}
+	app, err := s.mgr.LoadApp("gui-tool")
+	if err != nil {
+		t.Fatalf("LoadApp: %v", err)
+	}
+	if !app.GUI || app.Entry[1] != "app.py" {
+		t.Errorf("app spec = %+v", app.AppSpec)
+	}
+}
+
+func TestInstallCustomToolGitNoVenv(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("không có git trong PATH")
+	}
+	s := newTestService(t)
+	repo := newPythonRepo(t, map[string]string{"main.py": "print('hi')\n"})
+
+	runID, err := s.InstallCustomTool(context.Background(), "no-venv", "No Venv", "cli", fileURL(t, repo), "main.py", nil, false)
+	if err != nil {
+		t.Fatalf("InstallCustomTool: %v", err)
+	}
+	events := waitInstallEvents(t, s, runID)
+	last := events[len(events)-1]
+	if last.Kind != "result" || last.Data["ok"] != true {
+		t.Fatalf("events = %+v", events)
+	}
+	if _, err := os.Stat(filepath.Join(s.dir, "apps", "no-venv")); err != nil {
+		t.Fatalf("thiếu thư mục app: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(s.dir, "apps", "no-venv", "env")); !os.IsNotExist(err) {
+		t.Errorf("venv vẫn được tạo dù người dùng bỏ chọn: %v", err)
+	}
+}
+
+func TestInstallCustomToolBinary(t *testing.T) {
+	s := newTestService(t)
+	server := startBinaryServer(t)
+
+	runID, err := s.InstallCustomTool(context.Background(), "my-tool", "My Tool", "binary", server.URL+"/standalone.exe", "", []string{"bin"}, true)
+	if err != nil {
+		t.Fatalf("InstallCustomTool: %v", err)
+	}
+	events := waitInstallEvents(t, s, runID)
+	last := events[len(events)-1]
+	if last.Kind != "result" || last.Data["ok"] != true || last.Data["id"] != "my-tool" {
+		t.Fatalf("events = %+v", events)
+	}
+
+	app, err := s.mgr.LoadApp("my-tool")
+	if err != nil {
+		t.Fatalf("LoadApp: %v", err)
+	}
+	if app.Runtime != "binary" || app.Download != server.URL+"/standalone.exe" || app.Entry[0] != "standalone.exe" {
+		t.Errorf("app spec = %+v", app.AppSpec)
+	}
+	if _, err := os.Stat(filepath.Join(s.dir, "apps", "my-tool", "standalone.exe")); err != nil {
+		t.Errorf("thiếu binary đã tải: %v", err)
+	}
+
+	tools, err := s.ListTools()
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	got := findTool(tools, "my-tool")
+	if got == nil || got.Name != "My Tool" || got.Kind != "app" {
+		t.Fatalf("tool = %+v", got)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "bin" {
+		t.Errorf("tags = %v", got.Tags)
+	}
+}
+
+func TestInstallCustomToolURL(t *testing.T) {
+	s := newTestService(t)
+
+	runID, err := s.InstallCustomTool(context.Background(), "docs", "Tài liệu", "url", "https://example.com/docs", "", []string{"web"}, true)
+	if err != nil {
+		t.Fatalf("InstallCustomTool: %v", err)
+	}
+	if runID != "" {
+		t.Errorf("url tool không cần run, runID = %q", runID)
+	}
+
+	tools, err := s.ListTools()
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	got := findTool(tools, "docs")
+	if got == nil || got.Kind != "url" || got.Target != "https://example.com/docs" || got.Name != "Tài liệu" {
+		t.Fatalf("tool = %+v", got)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "web" {
+		t.Errorf("tags = %v", got.Tags)
+	}
+}
+
+func TestInstallCustomToolBadInput(t *testing.T) {
+	s := newTestService(t)
+	cases := []struct {
+		name, id, kind, target, entry, want string
+	}{
+		{"thiếu target", "x-tool", "git", "  ", "main.py", "thiếu nguồn cài đặt"},
+		{"kind lạ", "x-tool", "docker", "https://github.com/x/y.git", "main.py", "không hợp lệ"},
+		{"thiếu entry", "x-tool", "git", "https://github.com/x/y.git", "", "thiếu lệnh chạy"},
+		{"id rỗng", "", "git", "https://github.com/x/y.git", "main.py", "id app"},
+		{"id bắt đầu bằng số", "9tool", "git", "https://github.com/x/y.git", "main.py", "id app"},
+		{"url sai", "x-tool", "url", "không-phải-url", "", "http/https"},
+	}
+	for _, tc := range cases {
+		if _, err := s.InstallCustomTool(context.Background(), tc.id, "X", tc.kind, tc.target, tc.entry, nil, true); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, muốn chứa %q", tc.name, err, tc.want)
+		}
+	}
+}

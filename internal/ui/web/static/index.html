@@ -1,61 +1,446 @@
 <!doctype html>
-<html lang="vi">
+<html lang="vi" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="mt-token" content="__MT_TOKEN__">
-  <title>mt — Trung tâm tool</title>
-  <link rel="icon" href="data:,">
+  <title>mt — DevTools Workspace</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header>
-    <h1>mt</h1>
-    <p class="subtitle">Trung tâm tool cá nhân</p>
+  <!-- TOP COMMAND BAR -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="brand-logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 17 10 11 4 5"></polyline>
+          <line x1="12" y1="19" x2="20" y2="19"></line>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-title">mt</span>
+        <span class="brand-badge">DevTools Workspace</span>
+      </div>
+    </div>
+
+    <!-- PROMINENT SEARCH BAR (Ctrl + K) -->
+    <div class="search-container">
+      <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+      <input
+        type="search"
+        id="search-input"
+        class="search-input"
+        placeholder="Tìm kiếm công cụ theo tên, ID, hoặc #tag..."
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <div class="search-shortcut" id="search-shortcut-hint">
+        <kbd>Ctrl</kbd><kbd>K</kbd>
+      </div>
+      <button type="button" id="search-clear" class="search-clear" hidden title="Xóa tìm kiếm (Esc)">
+        ✕
+      </button>
+    </div>
+
+    <!-- TOPBAR ACTIONS -->
+    <div class="topbar-actions">
+      <div class="active-runs-pill" id="active-runs-indicator" title="Số tiến trình đang chạy">
+        <span class="status-dot dot-idle" id="global-run-dot"></span>
+        <span id="global-run-count">0 đang chạy</span>
+      </div>
+
+      <button type="button" id="btn-open-install" class="btn btn-accent btn-sm" title="Cài đặt hoặc thêm Tool mới">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span>Cài đặt Tool</span>
+      </button>
+
+      <button type="button" id="btn-refresh" class="btn btn-ghost btn-icon" title="Tải lại danh sách công cụ">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <polyline points="1 20 1 14 7 14"></polyline>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+      </button>
+
+      <button type="button" id="btn-theme" class="btn btn-ghost btn-icon" title="Chuyển đổi giao diện Sáng / Tối">
+        <svg id="icon-theme-dark" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="5"></circle>
+          <line x1="12" y1="1" x2="12" y2="3"></line>
+          <line x1="12" y1="21" x2="12" y2="23"></line>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+          <line x1="1" y1="12" x2="3" y2="12"></line>
+          <line x1="21" y1="12" x2="23" y2="12"></line>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+        </svg>
+      </button>
+    </div>
   </header>
 
-  <main>
-    <section id="tools">
-      <div class="col-head">
-        <h2>Tools</h2>
-        <button id="add-tool" title="Thêm tool">+</button>
+  <!-- 3-COLUMN DEVTOOLS SPLIT-WORKSPACE -->
+  <div class="workspace">
+    <!-- COLUMN 1: LEFT SIDEBAR (FILTERS BY KIND & TAGS) -->
+    <aside class="col-sidebar" aria-label="Bộ lọc công cụ">
+      <div class="sidebar-section">
+        <div class="sidebar-heading">
+          <span>PHÂN LOẠI (KIND)</span>
+        </div>
+        <nav class="filter-nav" id="kind-filters">
+          <!-- Rendered dynamically by app.js -->
+        </nav>
       </div>
-      <div id="tool-list" class="tool-grid"></div>
-    </section>
 
-    <section id="install">
-      <h2>Cài đặt Tool mới</h2>
-      <textarea id="install-source" spellcheck="false"
-        placeholder="./testdata/mock-tools/cli-tool&#10;https://…/tool.exe&#10;https://github.com/…/repo.git"></textarea>
-      <p id="install-hint">Dán link Git (có chứa app.toml), link file .exe, hoặc đường dẫn thư mục local.</p>
-      <button id="install-btn" class="btn">Cài đặt</button>
-      <div id="install-status" hidden><span class="spinner"></span><span>Đang cài đặt…</span></div>
-      <form id="manual-form" hidden>
-        <p id="manual-hint">Repo không có app.toml — điền thông tin để mt tự tạo:</p>
-        <div class="manual-row">
-          <label for="manual-name">Tên hiển thị</label>
-          <input id="manual-name" type="text" placeholder="Ví dụ: Rea">
+      <div class="sidebar-section sidebar-section-tags">
+        <div class="sidebar-heading">
+          <span>NHÃN (TAGS)</span>
+          <button type="button" id="btn-clear-tag" class="sidebar-link-btn" hidden>Bỏ lọc</button>
         </div>
-        <div class="manual-row">
-          <label for="manual-entry">Lệnh chạy</label>
-          <input id="manual-entry" type="text" placeholder="python main.py">
+        <div class="tag-cloud" id="tag-filters">
+          <!-- Rendered dynamically by app.js -->
         </div>
-        <div class="manual-row manual-check">
-          <label><input id="manual-gui" type="checkbox"> Có giao diện GUI không?</label>
-        </div>
-        <button id="manual-btn" type="button" class="btn">Xác nhận tạo &amp; Cài đặt</button>
-      </form>
-      <div id="install-log" class="log" hidden></div>
-    </section>
+      </div>
 
-    <section id="detail">
-      <h2>Chi tiết &amp; Run</h2>
-      <div id="detail-body"></div>
-      <div id="run-list"></div>
-    </section>
-  </main>
+      <div class="sidebar-footer">
+        <button type="button" id="sidebar-btn-install" class="sidebar-install-card">
+          <div class="sidebar-install-icon">+</div>
+          <div class="sidebar-install-info">
+            <strong>Thêm / Cài đặt Tool</strong>
+            <span>Git, Binary, Python venv</span>
+          </div>
+        </button>
+        <div class="shortcut-legend">
+          <span><kbd>Ctrl+K</kbd> Tìm nhanh</span>
+          <span><kbd>Ctrl+Enter</kbd> Chạy</span>
+        </div>
+      </div>
+    </aside>
 
-  <div id="notice" hidden></div>
+    <!-- COLUMN 2: CENTER PANEL (TOOL LIST OR INSTALL SCREEN) -->
+    <main class="col-center">
+      <!-- VIEW A: DANH SÁCH TOOL -->
+      <section id="view-tools" class="center-view">
+        <div class="center-header">
+          <div class="center-title-group">
+            <h2 id="center-heading">Tất cả công cụ</h2>
+            <span class="count-pill" id="filtered-count">0</span>
+          </div>
+          <div class="center-controls">
+            <div class="active-filter-chips" id="active-filter-bar" hidden>
+              <span id="active-filter-text"></span>
+              <button type="button" id="btn-reset-filters" class="chip-reset">Xóa bộ lọc ✕</button>
+            </div>
+            <div class="view-toggle" role="group" aria-label="Chế độ hiển thị">
+              <button type="button" id="btn-view-grid" class="view-btn active" title="Dạng lưới">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="14" width="7" height="7"></rect>
+                  <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+              </button>
+              <button type="button" id="btn-view-list" class="view-btn" title="Dạng danh sách gọn">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- LOADING SKELETON -->
+        <div id="tools-skeleton" class="tool-grid">
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+        </div>
+
+        <!-- EMPTY STATE -->
+        <div id="tools-empty" class="empty-state" hidden>
+          <div class="empty-icon">
+            <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </div>
+          <h3 id="empty-title">Không tìm thấy công cụ phù hợp</h3>
+          <p id="empty-desc">Thử thay đổi từ khóa tìm kiếm, xóa bộ lọc hoặc cài đặt thêm công cụ mới.</p>
+          <div class="empty-actions">
+            <button type="button" id="btn-empty-reset" class="btn btn-secondary">Xóa bộ lọc</button>
+            <button type="button" id="btn-empty-install" class="btn btn-accent">+ Cài đặt Tool mới</button>
+          </div>
+        </div>
+
+        <!-- TOOL CARDS CONTAINER -->
+        <div id="tool-list" class="tool-grid" hidden></div>
+      </section>
+
+      <!-- VIEW B: MÀN HÌNH CÀI ĐẶT TOOL (INSTALL VIEW IN COLUMN 2) -->
+      <section id="view-install" class="center-view" hidden>
+        <div class="center-header">
+          <div class="center-title-group">
+            <button type="button" id="btn-back-tools" class="btn btn-ghost btn-sm">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+              <span>Danh sách Tool</span>
+            </button>
+            <h2>Cài đặt / Thêm Công cụ mới</h2>
+          </div>
+          <span class="badge badge-accent">POST /api/app/add</span>
+        </div>
+
+        <div class="install-workspace">
+          <!-- FORM CÀI ĐẶT TOOL -->
+          <form id="install-form" class="install-card" autocomplete="off">
+            <div class="install-card-header">
+              <h3>Thông tin cấu hình công cụ</h3>
+              <p>Khai báo thông tin để tải tự động từ Git/Release hoặc đăng ký tool mới vào hệ thống.</p>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label for="inst-id">Mã công cụ (ID) <span class="req">*</span></label>
+                <input type="text" id="inst-id" name="id" required placeholder="vd: yt-dlp, whisper-cli">
+                <span class="field-hint">Định danh duy nhất dùng để gọi tool</span>
+              </div>
+
+              <div class="form-field">
+                <label for="inst-name">Tên hiển thị <span class="req">*</span></label>
+                <input type="text" id="inst-name" name="name" required placeholder="vd: Tải Video YouTube (yt-dlp)">
+                <span class="field-hint">Tên thân thiện hiển thị trên danh sách</span>
+              </div>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label for="inst-kind">Loại công cụ (Kind) <span class="req">*</span></label>
+                <select id="inst-kind" name="kind">
+                  <option value="git">git — Clone Git Repo (kèm Python venv)</option>
+                  <option value="binary">binary — Tải file thực thi (.exe / binary)</option>
+                  <option value="cli">cli — Công cụ dòng lệnh (CLI)</option>
+                  <option value="gui">gui — Ứng dụng đồ họa (GUI)</option>
+                  <option value="url">url — Mở nhanh đường dẫn Web</option>
+                </select>
+              </div>
+
+              <div class="form-field">
+                <label for="inst-tags">Nhãn phân loại (Tags)</label>
+                <input type="text" id="inst-tags" name="tags" placeholder="vd: media, video, python">
+                <span class="field-hint">Phân cách nhiều nhãn bằng dấu phẩy</span>
+              </div>
+            </div>
+
+            <div class="form-field">
+              <label for="inst-target">Nguồn cài đặt / Đường dẫn đích (URL / Target) <span class="req">*</span></label>
+              <input type="text" id="inst-target" name="target" required placeholder="vd: https://github.com/yt-dlp/yt-dlp.git hoặc đường dẫn file">
+              <span class="field-hint">Link Git repository, URL tải binary, hoặc lệnh thực thi</span>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-field">
+                <label for="inst-entry">Lệnh / File khởi chạy (Entry / Command)</label>
+                <input type="text" id="inst-entry" name="entry" placeholder="vd: main.py hoặc yt-dlp.exe">
+              </div>
+
+              <div class="form-field form-field-checkbox">
+                <label class="switch-label" for="inst-venv">
+                  <input type="checkbox" id="inst-venv" name="venv" checked>
+                  <span class="switch-slider"></span>
+                  <span class="switch-text">Tự động khởi tạo Python <code>venv</code> &amp; cài <code>requirements.txt</code></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="install-form-actions">
+              <button type="reset" class="btn btn-secondary" id="btn-install-reset">Làm mới form</button>
+              <button type="submit" class="btn btn-accent" id="btn-install-submit">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Bắt đầu Cài đặt</span>
+              </button>
+            </div>
+          </form>
+
+          <!-- KHUNG LOG STREAM CÀI ĐẶT TRỰC TIẾP TRONG CỘT 2 -->
+          <div class="install-terminal-card">
+            <div class="term-header">
+              <div class="term-header-left">
+                <div class="window-dots" aria-hidden="true">
+                  <span class="w-dot w-red"></span>
+                  <span class="w-dot w-amber"></span>
+                  <span class="w-dot w-green"></span>
+                </div>
+                <span class="term-title">Install Log Stream</span>
+                <span id="install-status-badge" class="term-status status-idle">SẴN SÀNG</span>
+              </div>
+              <div class="term-header-right">
+                <span id="install-timer" class="term-timer">00:00.0</span>
+                <button type="button" id="btn-install-copy" class="term-tool-btn" title="Copy log cài đặt">Copy</button>
+                <button type="button" id="btn-install-clear" class="term-tool-btn" title="Xóa log">Xóa</button>
+              </div>
+            </div>
+
+            <div id="install-progress-wrap" class="term-progress-wrap" hidden>
+              <div class="term-progress-bar">
+                <div id="install-progress-fill" class="term-progress-fill" style="width: 0%"></div>
+              </div>
+              <span id="install-progress-pct" class="term-progress-pct">0%</span>
+            </div>
+
+            <pre id="install-log-output" class="term-viewport"><span class="log-line log-muted">$ Đang chờ lệnh cài đặt từ form phía trên...</span></pre>
+
+            <!-- Ô NHẬP PHẢN HỒI KHI CÀI ĐẶT CÓ SỰ KIỆN ASK -->
+            <div id="install-ask-box" class="term-ask-banner" hidden>
+              <div class="ask-prompt-header">
+                <span class="ask-badge">YÊU CẦU XÁC NHẬN</span>
+                <span id="install-ask-text" class="ask-question">Nhập câu trả lời:</span>
+              </div>
+              <div class="ask-input-row">
+                <input type="text" id="install-ask-input" placeholder="Nhập phản hồi của bạn và nhấn Enter...">
+                <button type="button" id="btn-install-ask-send" class="btn btn-warn btn-sm">Gửi phản hồi</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- COLUMN 3: RIGHT TERMINAL DOCK (CONFIG FORM + LIVE SSE TERMINAL) -->
+    <aside class="col-dock" aria-label="Bảng cấu hình và Terminal Log">
+      <!-- TOP PANE: CONFIGURE SELECTED TOOL -->
+      <section class="dock-config" id="dock-config-section">
+        <div class="dock-section-header">
+          <div class="dock-tool-summary">
+            <span class="dock-tool-icon" id="dock-tool-icon">⚡</span>
+            <div class="dock-tool-titles">
+              <h3 id="dock-tool-name">Chưa chọn công cụ</h3>
+              <span id="dock-tool-meta" class="dock-tool-sub">Chọn 1 tool ở cột giữa để cấu hình hoặc chạy ngay</span>
+            </div>
+          </div>
+          <div class="dock-header-actions">
+            <button type="button" id="btn-toggle-config" class="term-tool-btn" title="Thu gọn / Mở rộng khung cấu hình" hidden>
+              Thu gọn
+            </button>
+          </div>
+        </div>
+
+        <div id="dock-config-body" class="dock-config-body">
+          <!-- Placeholder when no tool is selected -->
+          <div id="dock-no-tool" class="dock-placeholder">
+            <p>Bấm vào bất kỳ công cụ nào ở cột giữa để xem thông số hoặc nhấn <strong>Chạy ngay</strong> trên những công cụ không yêu cầu tham số.</p>
+          </div>
+
+          <!-- Form for the currently selected tool -->
+          <form id="dock-param-form" class="dock-param-form" hidden autocomplete="off">
+            <div id="dock-params-container" class="dock-params-list">
+              <!-- Dynamic parameter inputs rendered here -->
+            </div>
+
+            <div class="dock-form-footer">
+              <button type="button" id="btn-reset-params" class="btn btn-ghost btn-sm" title="Khôi phục giá trị mặc định">
+                Mặc định
+              </button>
+              <button type="submit" id="btn-run-selected" class="btn btn-run-primary">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                <span id="btn-run-selected-label">Chạy công cụ</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- BOTTOM PANE: REAL-TIME SSE TERMINAL DOCK -->
+      <section class="dock-terminal">
+        <!-- RUN SESSION TABS -->
+        <div class="run-tabs-bar">
+          <div class="run-tabs-scroll" id="run-tabs-list" role="tablist">
+            <!-- Dynamic tabs for each run_id -->
+          </div>
+          <button type="button" id="btn-clear-all-runs" class="term-tool-btn" title="Đóng các phiên đã kết thúc" hidden>
+            Dọn tab
+          </button>
+        </div>
+
+        <!-- TERMINAL HEADER BAR -->
+        <div class="term-header">
+          <div class="term-header-left">
+            <div class="window-dots" aria-hidden="true">
+              <span class="w-dot w-red"></span>
+              <span class="w-dot w-amber"></span>
+              <span class="w-dot w-green"></span>
+            </div>
+            <span id="term-active-title" class="term-title">Terminal SSE</span>
+            <span id="term-status-badge" class="term-status status-idle">CHỜ LỆNH</span>
+          </div>
+
+          <div class="term-header-right">
+            <span id="term-timer" class="term-timer" title="Thời gian thực thi">00:00.0</span>
+            <button type="button" id="btn-term-autoscroll" class="term-tool-btn active" title="Bật/tắt tự động cuộn xuống cuối">
+              Auto-scroll
+            </button>
+            <button type="button" id="btn-term-copy" class="term-tool-btn" title="Sao chép toàn bộ log vào Clipboard">
+              Copy Log
+            </button>
+            <button type="button" id="btn-term-clear" class="term-tool-btn" title="Xóa nội dung hiển thị">
+              Xóa
+            </button>
+          </div>
+        </div>
+
+        <!-- PROGRESS BAR -->
+        <div id="term-progress-wrap" class="term-progress-wrap" hidden>
+          <div class="term-progress-bar">
+            <div id="term-progress-fill" class="term-progress-fill" style="width: 0%"></div>
+          </div>
+          <span id="term-progress-pct" class="term-progress-pct">0%</span>
+        </div>
+
+        <!-- MONOSPACE TERMINAL VIEWPORT -->
+        <pre id="term-output" class="term-viewport"><span class="log-line log-muted">$ Sẵn sàng kết nối luồng sự kiện Server-Sent Events (/api/events)...</span></pre>
+
+        <!-- PROMINENT INTERACTIVE ASK BANNER (event.kind === "ask") -->
+        <div id="term-ask-box" class="term-ask-banner" hidden>
+          <div class="ask-prompt-header">
+            <span class="ask-badge">⚡ CẦN NHẬP LIỆU (ASK)</span>
+            <span id="term-ask-text" class="ask-question">Công cụ đang chờ bạn nhập phản hồi:</span>
+          </div>
+          <div class="ask-input-row">
+            <input
+              type="text"
+              id="term-ask-input"
+              placeholder="Nhập câu trả lời tại đây và nhấn Enter..."
+              autocomplete="off"
+            >
+            <button type="button" id="btn-term-ask-send" class="btn btn-warn btn-sm">
+              Gửi trả lời ↵
+            </button>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
   <script src="/app.js"></script>
 </body>

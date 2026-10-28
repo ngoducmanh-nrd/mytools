@@ -150,6 +150,11 @@ func (s *Service) Subscribe(runID string) (<-chan core.Event, func(), error) {
 	for _, event := range r.history {
 		ch <- event
 	}
+	if r.done {
+		// Run đã xong: replay lịch sử rồi đóng ngay để client nhận "closed".
+		close(ch)
+		return ch, func() {}, nil
+	}
 	r.subs[ch] = struct{}{}
 
 	unsubscribe := func() {
@@ -253,6 +258,11 @@ func (s *Service) finishRun(runID string) {
 	}
 	r.done = true
 	r.finished = time.Now()
+	// Đóng kênh subscriber để client SSE nhận sự kiện "closed" ngay khi run xong.
+	for ch := range r.subs {
+		close(ch)
+	}
+	r.subs = make(map[chan core.Event]struct{})
 }
 
 // sweep xóa các lần chạy đã xong quá hạn; kênh subscriber bị đóng khi xóa.

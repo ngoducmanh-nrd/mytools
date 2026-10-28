@@ -27,6 +27,7 @@ type ToolRunner interface {
 	Answer(runID, answer string) error
 	InstallTool(ctx context.Context, source string) (string, error)
 	InstallManualTool(ctx context.Context, source, name, entry string, gui bool) (string, error)
+	InstallCustomTool(ctx context.Context, id, name, kind, target, entry string, tags []string, venv bool) (string, error)
 	RemoveTool(id string) error
 }
 
