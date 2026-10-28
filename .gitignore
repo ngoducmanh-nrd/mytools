@@ -1,6 +1,7 @@
 mt.exe
 /mt
 *.exe
+*.exe~
 *.test
 *.out
 .DS_Store

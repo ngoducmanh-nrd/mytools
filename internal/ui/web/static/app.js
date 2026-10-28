@@ -12,6 +12,12 @@
 const TOKEN_META = document.querySelector('meta[name="mt-token"]');
 const TOKEN = TOKEN_META ? TOKEN_META.content : "";
 
+// Model mặc định cho Groq (đã thay llama-3.3-70b-versatile vì Groq gỡ model
+// này tháng 8/2026). Danh sách model đang hỗ trợ: console.groq.com/docs/models
+const DEFAULT_AGENT_MODEL = "qwen/qwen3.8-27b";
+const AGENT_MODEL_DEAD = "llama-3.3-70b-versatile";
+const savedAgentModel = localStorage.getItem("mt_agent_model");
+
 /* ==========================================================================
    TRẠNG THÁI ỨNG DỤNG (STATE)
    ========================================================================== */
@@ -33,7 +39,7 @@ const state = {
   agent: {
     baseUrl: localStorage.getItem("mt_agent_base_url") || "https://api.groq.com/openai/v1",
     apiKey: localStorage.getItem("mt_agent_api_key") || "",
-    model: localStorage.getItem("mt_agent_model") || "llama-3.3-70b-versatile",
+    model: savedAgentModel && savedAgentModel !== AGENT_MODEL_DEAD ? savedAgentModel : DEFAULT_AGENT_MODEL,
     messages: [],  // [{role, content}] gửi lên server (server chỉ giữ 8 tin gần nhất)
     busy: false
   },
@@ -928,7 +934,7 @@ function closeAgentSettings() {
 function saveAgentSettings() {
   state.agent.baseUrl = document.getElementById("agent-base-url").value.trim();
   state.agent.apiKey = document.getElementById("agent-api-key").value.trim();
-  state.agent.model = document.getElementById("agent-model").value.trim();
+  state.agent.model = document.getElementById("agent-model").value.trim() || DEFAULT_AGENT_MODEL;
   localStorage.setItem("mt_agent_base_url", state.agent.baseUrl);
   localStorage.setItem("mt_agent_api_key", state.agent.apiKey);
   localStorage.setItem("mt_agent_model", state.agent.model);
