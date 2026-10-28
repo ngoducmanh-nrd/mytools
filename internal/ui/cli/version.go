@@ -7,7 +7,7 @@ import (
 )
 
 // Version là phiên bản hiện tại của mt, so với tag trên GitHub Releases khi self-update.
-const Version = "0.1.0"
+const Version = "0.3.2"
 
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
