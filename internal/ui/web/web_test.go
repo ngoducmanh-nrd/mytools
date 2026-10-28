@@ -29,6 +29,7 @@ type fakeRunner struct {
 	answers        map[string][]string
 	toolErr        error
 	runCalls       int
+	lastRawArgs    string
 	installCalls   int
 	installSources []string
 	manualCalls    []manualCall
@@ -78,10 +79,11 @@ func (f *fakeRunner) ListTools() ([]core.Tool, error) {
 	return f.tools, nil
 }
 
-func (f *fakeRunner) RunTool(ctx context.Context, id string, params map[string]string) (string, error) {
+func (f *fakeRunner) RunTool(ctx context.Context, id string, params map[string]string, rawArgs string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.runCalls++
+	f.lastRawArgs = rawArgs
 	for _, tool := range f.tools {
 		if tool.ID == id {
 			runID := fmt.Sprintf("run-%d", f.runCalls)
@@ -403,6 +405,18 @@ func TestRunEndpoint(t *testing.T) {
 	}
 	if parsed["run_id"] == nil || parsed["run_id"].(string) == "" {
 		t.Errorf("thiếu run_id: %v", parsed)
+	}
+
+	resp, parsed = post(`{"id":"dl","params":{"url":"https://example.com/v"},"raw_args":"--no-mtime -f best"}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("run raw_args: %d %v", resp.StatusCode, parsed)
+	}
+	fake := s.runner.(*fakeRunner)
+	fake.mu.Lock()
+	rawArgs := fake.lastRawArgs
+	fake.mu.Unlock()
+	if rawArgs != "--no-mtime -f best" {
+		t.Errorf("lastRawArgs = %q", rawArgs)
 	}
 
 	resp, parsed = post(`{"id":"khong-co"}`)

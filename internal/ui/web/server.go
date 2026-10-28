@@ -22,7 +22,7 @@ var staticFS embed.FS
 // ToolRunner là phần service mà web cần; tách interface để test bằng giả lập.
 type ToolRunner interface {
 	ListTools() ([]core.Tool, error)
-	RunTool(ctx context.Context, id string, params map[string]string) (string, error)
+	RunTool(ctx context.Context, id string, params map[string]string, rawArgs string) (string, error)
 	Subscribe(runID string) (<-chan core.Event, func(), error)
 	Answer(runID, answer string) error
 	InstallTool(ctx context.Context, source string) (string, error)

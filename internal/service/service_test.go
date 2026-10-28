@@ -74,21 +74,38 @@ func TestListTools(t *testing.T) {
 func TestRunToolUnknownAndNonApp(t *testing.T) {
 	s := newTestService(t)
 
-	if _, err := s.RunTool(context.Background(), "khong-co", nil); err == nil || !strings.Contains(err.Error(), `không có tool "khong-co"`) {
+	if _, err := s.RunTool(context.Background(), "khong-co", nil, ""); err == nil || !strings.Contains(err.Error(), `không có tool "khong-co"`) {
 		t.Fatalf("tool lạ: %v", err)
 	}
-	if _, err := s.RunTool(context.Background(), "movies", nil); err == nil || !strings.Contains(err.Error(), "web chỉ chạy được kind") {
+	if _, err := s.RunTool(context.Background(), "movies", nil, ""); err == nil || !strings.Contains(err.Error(), "web chỉ chạy được kind") {
 		t.Fatalf("tool url: %v", err)
 	}
-	if _, err := s.RunTool(context.Background(), "", nil); err == nil || !strings.Contains(err.Error(), "thiếu id tool") {
+	if _, err := s.RunTool(context.Background(), "", nil, ""); err == nil || !strings.Contains(err.Error(), "thiếu id tool") {
 		t.Fatalf("id rỗng: %v", err)
 	}
-	_, err := s.RunTool(context.Background(), "dl", nil)
+	_, err := s.RunTool(context.Background(), "dl", nil, "")
 	if err == nil || !strings.Contains(err.Error(), "thiếu tham số bắt buộc: url") {
 		t.Fatalf("thiếu param url: %v", err)
 	}
-	if _, err := s.RunTool(context.Background(), "dl", map[string]string{"url": "https://example.com/v"}); err == nil || !strings.Contains(err.Error(), `app "yt-dlp" chưa cài`) {
+	if _, err := s.RunTool(context.Background(), "dl", map[string]string{"url": "https://example.com/v"}, ""); err == nil || !strings.Contains(err.Error(), `app "yt-dlp" chưa cài`) {
 		t.Fatalf("app chưa cài: %v", err)
+	}
+}
+
+func TestRunToolRawArgs(t *testing.T) {
+	s := newTestService(t)
+
+	// Raw args hợp lệ vẫn đi tới bước chạy app (lỗi app chưa cài chứng tỏ đã qua bước nối tham số).
+	if _, err := s.RunTool(context.Background(), "dl", map[string]string{"url": "https://example.com/v"}, `--no-mtime -f best`); err == nil || !strings.Contains(err.Error(), `app "yt-dlp" chưa cài`) {
+		t.Fatalf("raw args hợp lệ: %v", err)
+	}
+	// Nhóm bằng nháy kép vẫn hợp lệ.
+	if _, err := s.RunTool(context.Background(), "dl", map[string]string{"url": "https://example.com/v"}, `--match-title "chương trình tối"`); err == nil || !strings.Contains(err.Error(), `app "yt-dlp" chưa cài`) {
+		t.Fatalf("raw args có nháy kép: %v", err)
+	}
+	// Nháy kép thiếu phải báo lỗi trước khi chạy app.
+	if _, err := s.RunTool(context.Background(), "dl", map[string]string{"url": "https://example.com/v"}, `--match-title "thiếu đóng`); err == nil || !strings.Contains(err.Error(), `thiếu dấu "`) {
+		t.Fatalf("raw args hỏng: %v", err)
 	}
 }
 

@@ -85,3 +85,43 @@ func TestExpandHome(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitArgs(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"", nil},
+		{"   ", nil},
+		{"--no-mtime", []string{"--no-mtime"}},
+		{"--no-mtime -f best", []string{"--no-mtime", "-f", "best"}},
+		{`--match-title "chương trình tối"`, []string{"--match-title", "chương trình tối"}},
+		{`-o "C:\thư mục có dấu cách" --newline`, []string{"-o", `C:\thư mục có dấu cách`, "--newline"}},
+		{`  --a   "b c"  d  `, []string{"--a", "b c", "d"}},
+		{`""`, []string{""}},
+	}
+	for _, test := range tests {
+		got, err := SplitArgs(test.in)
+		if err != nil {
+			t.Errorf("SplitArgs(%q): %v", test.in, err)
+			continue
+		}
+		if len(got) != len(test.want) {
+			t.Errorf("SplitArgs(%q) = %v, want %v", test.in, got, test.want)
+			continue
+		}
+		for i := range test.want {
+			if got[i] != test.want[i] {
+				t.Errorf("SplitArgs(%q)[%d] = %q, want %q", test.in, i, got[i], test.want[i])
+			}
+		}
+	}
+}
+
+func TestSplitArgsErrors(t *testing.T) {
+	for _, in := range []string{`"thiếu đóng`, `--a "mở "đóng "rồi`} {
+		if _, err := SplitArgs(in); err == nil || !strings.Contains(err.Error(), `thiếu dấu "`) {
+			t.Errorf("SplitArgs(%q) error = %v", in, err)
+		}
+	}
+}

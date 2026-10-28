@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -109,9 +110,25 @@ func addBinaryApp(cmd *cobra.Command, mgr *appmgr.Manager, spec core.AppSpec) er
 		return err
 	}
 	if installed.Sha256 != "" {
-		_, err = fmt.Fprintf(out, "sha256: %s\n", installed.Sha256)
+		if _, err := fmt.Fprintf(out, "sha256: %s\n", installed.Sha256); err != nil {
+			return err
+		}
 	}
-	return err
+	showHelpFlags(cmd.Context(), out, *installed)
+	return nil
+}
+
+// showHelpFlags chạy "--help" sau khi cài và in tóm tắt các cờ hỗ trợ;
+// lỗi trích xuất chỉ in cảnh báo, không làm hỏng việc cài đặt.
+func showHelpFlags(ctx context.Context, out io.Writer, app core.App) {
+	summary, err := runner.HelpFlags(ctx, app)
+	if err != nil {
+		_, _ = fmt.Fprintf(out, "Không trích xuất được --help: %v\n", err)
+		return
+	}
+	if summary != "" {
+		_, _ = fmt.Fprintln(out, summary)
+	}
 }
 
 func addLocalApp(cmd *cobra.Command, mgr *appmgr.Manager, srcDir string) error {
@@ -154,8 +171,11 @@ func addLocalApp(cmd *cobra.Command, mgr *appmgr.Manager, srcDir string) error {
 	}
 
 	if app.Runtime == "python" {
-		_, err = fmt.Fprintf(out, "Đã cài app %q vào %s (env: %s)\n", app.ID, app.Dir, filepath.Join(app.Dir, "env"))
-		return err
+		if _, err := fmt.Fprintf(out, "Đã cài app %q vào %s (env: %s)\n", app.ID, app.Dir, filepath.Join(app.Dir, "env")); err != nil {
+			return err
+		}
+		showHelpFlags(cmd.Context(), out, *app)
+		return nil
 	}
 
 	installed, err := mgr.LoadApp(app.ID)
@@ -166,9 +186,12 @@ func addLocalApp(cmd *cobra.Command, mgr *appmgr.Manager, srcDir string) error {
 		return err
 	}
 	if installed.Sha256 != "" {
-		_, err = fmt.Fprintf(out, "sha256: %s\n", installed.Sha256)
+		if _, err := fmt.Fprintf(out, "sha256: %s\n", installed.Sha256); err != nil {
+			return err
+		}
 	}
-	return err
+	showHelpFlags(cmd.Context(), out, *installed)
+	return nil
 }
 
 func addGitApp(cmd *cobra.Command, mgr *appmgr.Manager, rawURL, ref string) error {
@@ -216,8 +239,11 @@ func addGitApp(cmd *cobra.Command, mgr *appmgr.Manager, rawURL, ref string) erro
 	}
 
 	if app.Runtime == "python" {
-		_, err = fmt.Fprintf(out, "Đã cài app %q vào %s (env: %s)\n", app.ID, app.Dir, filepath.Join(app.Dir, "env"))
-		return err
+		if _, err := fmt.Fprintf(out, "Đã cài app %q vào %s (env: %s)\n", app.ID, app.Dir, filepath.Join(app.Dir, "env")); err != nil {
+			return err
+		}
+		showHelpFlags(cmd.Context(), out, *app)
+		return nil
 	}
 
 	installed, err := mgr.LoadApp(app.ID)
@@ -228,9 +254,12 @@ func addGitApp(cmd *cobra.Command, mgr *appmgr.Manager, rawURL, ref string) erro
 		return err
 	}
 	if installed.Sha256 != "" {
-		_, err = fmt.Fprintf(out, "sha256: %s\n", installed.Sha256)
+		if _, err := fmt.Fprintf(out, "sha256: %s\n", installed.Sha256); err != nil {
+			return err
+		}
 	}
-	return err
+	showHelpFlags(cmd.Context(), out, *installed)
+	return nil
 }
 
 // runNodeInstall chạy npm install và in log ra terminal.

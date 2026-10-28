@@ -118,6 +118,49 @@ func TestParseToolArgsNoParamsPassThrough(t *testing.T) {
 	}
 }
 
+func TestParseToolArgsRawAfterDashDash(t *testing.T) {
+	tool := &core.Tool{
+		ID:     "dl",
+		Params: []core.Param{{Name: "url", Type: "string"}},
+	}
+	params, rest, err := parseToolArgs(tool, []string{"--url", "u", "--", "--no-mtime", "-f", "best"})
+	if err != nil {
+		t.Fatalf("parseToolArgs: %v", err)
+	}
+	if params["url"] != "u" {
+		t.Errorf("url = %q, want u", params["url"])
+	}
+	want := []string{"--no-mtime", "-f", "best"}
+	if len(rest) != len(want) {
+		t.Fatalf("rest = %v, want %v", rest, want)
+	}
+	for i := range want {
+		if rest[i] != want[i] {
+			t.Fatalf("rest = %v, want %v", rest, want)
+		}
+	}
+}
+
+func TestParseToolArgsNoParamsStripsDashDash(t *testing.T) {
+	tool := &core.Tool{ID: "demo"}
+	_, rest, err := parseToolArgs(tool, []string{"--", "--anything", "value"})
+	if err != nil {
+		t.Fatalf("parseToolArgs: %v", err)
+	}
+	if len(rest) != 2 || rest[0] != "--anything" || rest[1] != "value" {
+		t.Errorf("rest = %v, want [--anything value]", rest)
+	}
+
+	// Không có dấu "--" thì giữ nguyên.
+	_, rest, err = parseToolArgs(tool, []string{"--anything", "value"})
+	if err != nil {
+		t.Fatalf("parseToolArgs: %v", err)
+	}
+	if len(rest) != 2 || rest[0] != "--anything" || rest[1] != "value" {
+		t.Errorf("rest = %v", rest)
+	}
+}
+
 func TestParseToolArgsBadDefaultType(t *testing.T) {
 	tool := &core.Tool{
 		ID:     "bad",

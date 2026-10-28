@@ -67,8 +67,9 @@ func (s *Service) ListTools() ([]core.Tool, error) {
 	return registry.Load(filepath.Join(s.dir, "tools.toml"))
 }
 
-// RunTool chạy tool và trả về runID để theo dõi qua Subscribe.
-func (s *Service) RunTool(ctx context.Context, id string, params map[string]string) (string, error) {
+// RunTool chạy tool và trả về runID để theo dõi qua Subscribe. rawArgs là
+// chuỗi tham số bổ sung do người dùng nhập tự do (web) hoặc sau dấu "--" (CLI).
+func (s *Service) RunTool(ctx context.Context, id string, params map[string]string, rawArgs string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -98,6 +99,13 @@ func (s *Service) RunTool(ctx context.Context, id string, params map[string]stri
 	runArgs, err := runner.ExpandArgs(tool.Args, values)
 	if err != nil {
 		return "", fmt.Errorf("tool %q: %w", id, err)
+	}
+	if raw := strings.TrimSpace(rawArgs); raw != "" {
+		extra, err := runner.SplitArgs(raw)
+		if err != nil {
+			return "", fmt.Errorf("tool %q: raw_args: %w", id, err)
+		}
+		runArgs = append(runArgs, extra...)
 	}
 
 	app, err := s.mgr.LoadApp(tool.App)

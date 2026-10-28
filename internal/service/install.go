@@ -260,6 +260,12 @@ func (s *Service) installRun(ctx context.Context, runID, source, toolName string
 		return
 	}
 
+	if summary, err := runner.HelpFlags(ctx, *app); err != nil {
+		s.publish(runID, core.Event{RunID: runID, Kind: "log", Text: fmt.Sprintf("Không trích xuất được --help: %v", err)})
+	} else if summary != "" {
+		s.publish(runID, core.Event{RunID: runID, Kind: "log", Text: summary})
+	}
+
 	s.publish(runID, core.Event{
 		RunID: runID,
 		Kind:  "result",

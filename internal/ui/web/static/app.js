@@ -24,6 +24,7 @@ const state = {
   selectedToolId: null,      // ID của tool đang mở trong Dock cấu hình
   favorites: new Set(JSON.parse(localStorage.getItem("mt_favorites") || "[]")),
   recentParams: JSON.parse(localStorage.getItem("mt_recent_params") || "{}"),
+  recentRawArgs: JSON.parse(localStorage.getItem("mt_recent_raw_args") || "{}"),
 
   // Quản lý các phiên chạy (runs) trong Terminal Dock (Cột 3)
   runs: new Map(),           // runID -> RunSession
@@ -484,7 +485,7 @@ function createToolCard(tool) {
     actionBtn.onclick = (e) => {
       e.stopPropagation();
       selectToolInDock(tool.id, false);
-      executeToolRun(tool, {});
+      executeToolRun(tool, {}, state.recentRawArgs[tool.id] || "");
     };
   } else {
     // Tool CÓ param -> Mở form nhập liệu gọn gàng ở Cột 3 & focus
@@ -577,6 +578,8 @@ function selectToolInDock(toolId, focusFirstInput = false) {
       if (firstInput) firstInput.focus();
     }
   }
+
+  paramsContainer.appendChild(createRawArgsField(state.recentRawArgs[tool.id] || ""));
 }
 
 function clearDockSelection() {
@@ -645,7 +648,9 @@ async function deleteTool(tool) {
   state.favorites.delete(tool.id);
   localStorage.setItem("mt_favorites", JSON.stringify([...state.favorites]));
   delete state.recentParams[tool.id];
+  delete state.recentRawArgs[tool.id];
   localStorage.setItem("mt_recent_params", JSON.stringify(state.recentParams));
+  localStorage.setItem("mt_recent_raw_args", JSON.stringify(state.recentRawArgs));
 
   if (state.selectedToolId === tool.id) {
     clearDockSelection();
@@ -729,6 +734,38 @@ function createParamField(param, savedVal) {
   return wrap;
 }
 
+/**
+ * Ô nhập tham số thô (Raw Args): mọi công cụ đều có, kể cả công cụ không
+ * khai báo [[tool.param]]. Nội dung được nối trực tiếp vào cuối lệnh chạy.
+ */
+function createRawArgsField(savedVal) {
+  const wrap = document.createElement("div");
+  wrap.className = "form-field raw-args-field";
+
+  const label = document.createElement("label");
+  const titleSpan = document.createElement("span");
+  titleSpan.textContent = "Tham số bổ sung (Raw Args)";
+  label.appendChild(titleSpan);
+  wrap.appendChild(label);
+
+  const hint = document.createElement("span");
+  hint.className = "field-hint";
+  hint.textContent = "Các cờ bổ sung sẽ được nối trực tiếp vào lệnh (ví dụ: --no-mtime -f best)";
+  wrap.appendChild(hint);
+
+  const textarea = document.createElement("textarea");
+  textarea.id = "dock-raw-args";
+  textarea.name = "raw_args";
+  textarea.rows = 2;
+  textarea.spellcheck = false;
+  textarea.placeholder = "Ví dụ: --no-mtime -f best";
+  if (savedVal !== undefined && savedVal !== null) {
+    textarea.value = String(savedVal);
+  }
+  wrap.appendChild(textarea);
+  return wrap;
+}
+
 function collectDockParams(tool) {
   const params = {};
   if (!hasParams(tool)) return params;
@@ -749,18 +786,22 @@ function collectDockParams(tool) {
 /* ==========================================================================
    CỘT 3 (PHẦN DƯỚI): THỰC THI TOOL (POST /api/run) & TERMINAL SSE (/api/events)
    ========================================================================== */
-async function executeToolRun(tool, params) {
+async function executeToolRun(tool, params, rawArgs = "") {
   // Lưu lại lịch sử tham số vào localStorage
   if (hasParams(tool)) {
     state.recentParams[tool.id] = params;
     localStorage.setItem("mt_recent_params", JSON.stringify(state.recentParams));
   }
+  state.recentRawArgs[tool.id] = rawArgs;
+  localStorage.setItem("mt_recent_raw_args", JSON.stringify(state.recentRawArgs));
 
   const runBtn = document.getElementById("btn-run-selected");
   if (runBtn) runBtn.disabled = true;
 
   try {
-    const res = await api("/api/run", { id: tool.id, params });
+    const body = { id: tool.id, params };
+    if (rawArgs) body.raw_args = rawArgs;
+    const res = await api("/api/run", body);
     const runID = res.run_id;
     if (!runID) throw new Error("Server không trả về run_id hợp lệ.");
 
@@ -1429,14 +1470,18 @@ function bindEvents() {
     const tool = state.tools.find((t) => t.id === state.selectedToolId);
     if (!tool) return;
     const params = collectDockParams(tool);
-    executeToolRun(tool, params);
+    const rawEl = document.getElementById("dock-raw-args");
+    const rawArgs = rawEl ? rawEl.value.trim() : "";
+    executeToolRun(tool, params, rawArgs);
   });
 
   // Khôi phục tham số mặc định
   document.getElementById("btn-reset-params").onclick = () => {
     if (!state.selectedToolId) return;
     delete state.recentParams[state.selectedToolId];
+    delete state.recentRawArgs[state.selectedToolId];
     localStorage.setItem("mt_recent_params", JSON.stringify(state.recentParams));
+    localStorage.setItem("mt_recent_raw_args", JSON.stringify(state.recentRawArgs));
     selectToolInDock(state.selectedToolId, false);
     showToast("Đã đặt lại tham số về giá trị mặc định.", "info");
   };

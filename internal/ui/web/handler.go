@@ -74,8 +74,9 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 }
 
 type runRequest struct {
-	ID     string            `json:"id"`
-	Params map[string]string `json:"params"`
+	ID      string            `json:"id"`
+	Params  map[string]string `json:"params"`
+	RawArgs string            `json:"raw_args"`
 }
 
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +86,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runID, err := s.runner.RunTool(r.Context(), req.ID, req.Params)
+	runID, err := s.runner.RunTool(r.Context(), req.ID, req.Params, req.RawArgs)
 	if err != nil {
 		writeAPIError(w, http.StatusBadRequest, err)
 		return

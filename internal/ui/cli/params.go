@@ -28,7 +28,7 @@ func parseToolArgs(tool *core.Tool, args []string) (map[string]string, []string,
 		return nil, nil, errors.New("thiếu tool để đọc tham số")
 	}
 	if len(tool.Params) == 0 {
-		return map[string]string{}, args, nil
+		return map[string]string{}, stripDashDash(args), nil
 	}
 
 	flags := pflag.NewFlagSet("run "+tool.ID, pflag.ContinueOnError)
@@ -120,6 +120,14 @@ func bindingValue(binding paramBinding) (string, error) {
 	default:
 		return "", fmt.Errorf("type %q chưa hỗ trợ", param.Type)
 	}
+}
+
+// stripDashDash bỏ dấu "--" phân cách raw args khi tool không khai báo param.
+func stripDashDash(args []string) []string {
+	if len(args) > 0 && args[0] == "--" {
+		return args[1:]
+	}
+	return args
 }
 
 func flagName(name string) string {

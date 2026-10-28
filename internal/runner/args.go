@@ -23,6 +23,41 @@ func ExpandHome(path string) (string, error) {
 	return filepath.Join(home, path[2:]), nil
 }
 
+// SplitArgs tách chuỗi tham số thô thành các đối số, hỗ trợ nhóm bằng dấu
+// nháy kép: --flag "giá trị có dấu cách". Không hỗ trợ escape bằng backslash.
+func SplitArgs(raw string) ([]string, error) {
+	var args []string
+	var current strings.Builder
+	inQuote := false
+	hasToken := false
+	for i := 0; i < len(raw); i++ {
+		ch := raw[i]
+		switch {
+		case ch == '"':
+			inQuote = !inQuote
+			hasToken = true
+		case ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n':
+			if inQuote {
+				current.WriteByte(ch)
+			} else if hasToken {
+				args = append(args, current.String())
+				current.Reset()
+				hasToken = false
+			}
+		default:
+			current.WriteByte(ch)
+			hasToken = true
+		}
+	}
+	if inQuote {
+		return nil, errors.New(`thiếu dấu " đóng`)
+	}
+	if hasToken {
+		args = append(args, current.String())
+	}
+	return args, nil
+}
+
 // ExpandArgs thay {tên} trong từng đối số bằng giá trị tham số.
 // Viết {{ và }} để có ngoặc thật.
 func ExpandArgs(template []string, params map[string]string) ([]string, error) {
