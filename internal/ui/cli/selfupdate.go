@@ -101,18 +101,20 @@ func runSelfUpdate(cmd *cobra.Command) error {
 
 	display := strings.TrimPrefix(latest, "v")
 	if runtime.GOOS == "windows" {
-		batchPath := filepath.Join(filepath.Dir(exePath), "update.bat")
-		script := buildUpdateBatch(os.Getpid(), exePath, newPath)
-		if err := os.WriteFile(batchPath, []byte(script), 0o755); err != nil {
-			return fmt.Errorf("ghi %s: %w", batchPath, err)
+		scriptPath := filepath.Join(filepath.Dir(exePath), "update.ps1")
+		script := buildUpdateScript(exePath, newPath)
+		if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+			return fmt.Errorf("ghi %s: %w", scriptPath, err)
 		}
-		process := exec.Command("cmd.exe", "/C", batchPath)
-		process.SysProcAttr = runner.DetachedSysProcAttr()
+		process := exec.Command("powershell.exe",
+			"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+			"-WindowStyle", "Hidden", "-File", scriptPath)
+		process.SysProcAttr = runner.HiddenSysProcAttr()
 		if err := process.Start(); err != nil {
-			return fmt.Errorf("chạy %s: %w", batchPath, err)
+			return fmt.Errorf("chạy %s: %w", scriptPath, err)
 		}
 		_ = process.Process.Release()
-		_, werr := fmt.Fprintf(out, "Đã tải v%s. update.bat sẽ thay mt.exe sau khi tiến trình này thoát rồi khởi động lại mt.\n", display)
+		_, werr := fmt.Fprintf(out, "Đã tải v%s. mt sẽ tự đóng mọi tiến trình đang chạy, cập nhật ngầm rồi mở lại.\n", display)
 		return werr
 	}
 
@@ -270,21 +272,25 @@ func segment(parts []int, i int) int {
 	return 0
 }
 
-// buildUpdateBatch sinh script chờ tiến trình hiện tại thoát rồi thay file exe.
-// Windows khóa file exe đang chạy nên phải hoãn việc thay thế sang một tiến trình khác.
-func buildUpdateBatch(pid int, exePath, newPath string) string {
-	exeDir := filepath.Dir(exePath)
-	return fmt.Sprintf(`@echo off
-chcp 65001 >nul
-rem Cho mt.exe (PID %d) thoat roi thay file.
-:wait
-tasklist /FI "PID eq %d" /NH 2>nul | find "%d" >nul
-if not errorlevel 1 (
-  timeout /t 1 /nobreak >nul
-  goto wait
-)
-del "%s"
-move /Y "%s" "%s"
-start "" /D "%s" "%s"
-`, pid, pid, pid, exePath, newPath, exePath, exeDir, exePath)
+// buildUpdateScript sinh script PowerShell ẩn thay mt.exe trên Windows:
+// ép đóng mọi tiến trình mt.exe để giải phóng khóa file, thay exe, mở lại
+// mt rồi tự xóa script. Dùng comment ASCII vì PowerShell 5.1 đọc .ps1
+// không BOM theo ANSI, ký tự có dấu dễ vỡ.
+func buildUpdateScript(exePath, newPath string) string {
+	dir := filepath.Dir(exePath)
+	return fmt.Sprintf(`# Wait for the self-update CLI to print its message and exit.
+Start-Sleep -Milliseconds 500
+Stop-Process -Name mt -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+Move-Item -Force -ErrorAction Stop %s %s
+Start-Process -FilePath %s -WorkingDirectory %s
+Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath %s -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath %s -Force -ErrorAction SilentlyContinue
+`, psQuote(newPath), psQuote(exePath), psQuote(exePath), psQuote(dir), psQuote(newPath), psQuote(filepath.Join(dir, "update.bat")))
+}
+
+// psQuote bọc chuỗi trong nháy đơn kiểu PowerShell, nhân đôi nháy đơn bên trong.
+func psQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

@@ -114,24 +114,39 @@ func TestFindAssetMissing(t *testing.T) {
 	}
 }
 
-func TestBuildUpdateBatch(t *testing.T) {
-	script := buildUpdateBatch(4242, `C:\tools\mt\mt.exe`, `C:\tools\mt\mt.exe.new`)
+func TestBuildUpdateScript(t *testing.T) {
+	script := buildUpdateScript(`C:\tools\mt\mt.exe`, `C:\tools\mt\mt.exe.new`)
 
 	checks := []string{
-		`tasklist /FI "PID eq 4242" /NH`,
-		`find "4242"`,
-		`goto wait`,
-		`del "C:\tools\mt\mt.exe"`,
-		`move /Y "C:\tools\mt\mt.exe.new" "C:\tools\mt\mt.exe"`,
-		`start "" /D "C:\tools\mt" "C:\tools\mt\mt.exe"`,
-		`chcp 65001`,
+		`Stop-Process -Name mt -Force -ErrorAction SilentlyContinue`,
+		`Start-Sleep -Milliseconds 500`,
+		`Move-Item -Force -ErrorAction Stop 'C:\tools\mt\mt.exe.new' 'C:\tools\mt\mt.exe'`,
+		`Start-Process -FilePath 'C:\tools\mt\mt.exe' -WorkingDirectory 'C:\tools\mt'`,
+		`Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue`,
+		`Remove-Item -LiteralPath 'C:\tools\mt\mt.exe.new' -Force -ErrorAction SilentlyContinue`,
+		`Remove-Item -LiteralPath 'C:\tools\mt\update.bat' -Force -ErrorAction SilentlyContinue`,
 	}
 	for _, want := range checks {
 		if !strings.Contains(script, want) {
 			t.Errorf("script thiếu %q:\n%s", want, script)
 		}
 	}
-	if strings.Index(script, ":wait") > strings.Index(script, `del "C:\tools\mt\mt.exe"`) {
-		t.Errorf("nhãn :wait phải đứng trước lệnh xóa exe:\n%s", script)
+	if strings.Index(script, "Stop-Process") > strings.Index(script, "Move-Item") {
+		t.Errorf("Stop-Process phải đứng trước Move-Item:\n%s", script)
+	}
+	if strings.Index(script, "Move-Item") > strings.Index(script, "Start-Process") {
+		t.Errorf("Move-Item phải đứng trước Start-Process:\n%s", script)
+	}
+}
+
+func TestPSQuote(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{in: `C:\tools\mt\mt.exe`, want: `'C:\tools\mt\mt.exe'`},
+		{in: `C:\o'hare\mt.exe`, want: `'C:\o''hare\mt.exe'`},
+	}
+	for _, tc := range cases {
+		if got := psQuote(tc.in); got != tc.want {
+			t.Errorf("psQuote(%q) = %q, muốn %q", tc.in, got, tc.want)
+		}
 	}
 }

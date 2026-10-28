@@ -8,3 +8,9 @@ import "syscall"
 func DetachedSysProcAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
 }
+
+// HiddenSysProcAttr trên Unix không cần ẩn cửa sổ; chạy trong session riêng
+// như tiến trình tách rời để sống tiếp sau khi CLI thoát.
+func HiddenSysProcAttr() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{Setsid: true}
+}
