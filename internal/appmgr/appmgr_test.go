@@ -609,6 +609,77 @@ func TestValidateSpecPythonWithoutSource(t *testing.T) {
 	}
 }
 
+func TestValidateSpecNode(t *testing.T) {
+	valid := core.AppSpec{
+		SchemaVersion: 1,
+		ID:            "demo",
+		Runtime:       "node",
+		Entry:         []string{"npm", "start"},
+	}
+	if err := validateSpec(valid); err != nil {
+		t.Fatalf("node hợp lệ bị từ chối: %v", err)
+	}
+
+	bad := []core.AppSpec{
+		{SchemaVersion: 1, ID: "demo", Runtime: "node"},
+		{SchemaVersion: 1, ID: "demo", Runtime: "node", Entry: []string{"../npm", "start"}},
+	}
+	for _, spec := range bad {
+		if err := validateSpec(spec); err == nil {
+			t.Fatalf("validateSpec(%+v) phải lỗi", spec)
+		}
+	}
+}
+
+func TestInstallLocalSkipsJunkDirs(t *testing.T) {
+	srcDir := t.TempDir()
+	files := map[string]string{
+		"app.toml": `schema_version = 1
+id = "music-app"
+runtime = "node"
+entry = ["npm", "start"]
+`,
+		"package.json":                  `{"name":"music-app"}`,
+		"src/main.ts":                   "export {};\n",
+		"src/node_modules/pkg/index.js": "nested junk\n",
+		"node_modules/pkg/index.js":     "junk\n",
+		"dist/index.html":               "<html></html>\n",
+		"build/out.txt":                 "junk\n",
+		"target/debug.txt":              "junk\n",
+		"venv/bin/tool":                 "junk\n",
+		"env/lib/tool":                  "junk\n",
+		".git/HEAD":                     "ref\n",
+	}
+	for name, content := range files {
+		path := filepath.Join(srcDir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	app, err := New(t.TempDir()).InstallLocal(srcDir)
+	if err != nil {
+		t.Fatalf("InstallLocal: %v", err)
+	}
+	if app.Runtime != "node" {
+		t.Fatalf("Runtime = %q, muốn node", app.Runtime)
+	}
+
+	for _, name := range []string{"package.json", "src/main.ts"} {
+		if _, err := os.Stat(filepath.Join(app.Dir, filepath.FromSlash(name))); err != nil {
+			t.Fatalf("thiếu source %s: %v", name, err)
+		}
+	}
+	for _, name := range []string{"node_modules", "dist", "build", "target", "venv", "env", ".git", "src/node_modules"} {
+		if _, err := os.Stat(filepath.Join(app.Dir, filepath.FromSlash(name))); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("thư mục rác %s vẫn được copy: %v", name, err)
+		}
+	}
+}
+
 func TestInstallLocal(t *testing.T) {
 	srcDir := t.TempDir()
 	files := map[string]string{

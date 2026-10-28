@@ -330,6 +330,18 @@ func (m *Manager) InstallLocal(srcDir string) (*core.App, error) {
 	return &core.App{AppSpec: *spec, Dir: dir}, nil
 }
 
+// localCopySkip gồm các thư mục sinh ra khi build hoặc cài dependencies;
+// bản cài local chỉ cần source nên bỏ qua để copy nhanh và nhẹ.
+var localCopySkip = map[string]bool{
+	"node_modules": true,
+	".git":         true,
+	"dist":         true,
+	"build":        true,
+	"target":       true,
+	"venv":         true,
+	"env":          true,
+}
+
 func copyTree(src, dst string) error {
 	return filepath.Walk(src, func(path string, info fs.FileInfo, walkErr error) error {
 		if walkErr != nil {
@@ -349,7 +361,7 @@ func copyTree(src, dst string) error {
 		target := filepath.Join(dst, rel)
 
 		if info.IsDir() {
-			if info.Name() == ".git" {
+			if localCopySkip[info.Name()] {
 				return filepath.SkipDir
 			}
 			if err := os.Mkdir(target, info.Mode().Perm()); err != nil {
@@ -606,8 +618,15 @@ func validateSpec(spec core.AppSpec) error {
 				return fmt.Errorf("requirements: %q phải nằm trong thư mục app", spec.Requirements)
 			}
 		}
+	case "node":
+		if len(spec.Entry) == 0 {
+			return errors.New(`entry: thiếu trường bắt buộc "entry"`)
+		}
+		if err := validateEntryFile(spec.Entry[0]); err != nil {
+			return fmt.Errorf("entry[0]: %w", err)
+		}
 	default:
-		return fmt.Errorf("runtime %q không hợp lệ (chỉ nhận binary|python)", spec.Runtime)
+		return fmt.Errorf("runtime %q không hợp lệ (chỉ nhận binary|python|node)", spec.Runtime)
 	}
 	return nil
 }

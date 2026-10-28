@@ -6,7 +6,7 @@
 
 - Danh sách tool khai báo bằng `tools.toml` — thêm tool mới chỉ cần sửa file cấu hình, không build lại.
 - Chạy tool dòng lệnh với log và tiến trình realtime.
-- Quản lý app: tải binary (yt-dlp), clone git + môi trường Python riêng, cập nhật, xóa sạch.
+- Quản lý app: tải binary (yt-dlp), clone git + môi trường Python/Node riêng, cập nhật, xóa sạch.
 - Theo dõi tool sống (cửa sổ GUI, service nền): `ps`, `stop`, `restart`, `logs`.
 - Giao diện web local `mt web` — form tự sinh theo tham số của tool, log/tiến trình đẩy qua SSE, bảo vệ bằng token + kiểm tra Host/Origin (chỉ nghe `127.0.0.1`).
 - Chế độ portable: dữ liệu nằm cạnh file exe, tiện mang theo USB.

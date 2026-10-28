@@ -454,6 +454,8 @@ func buildAppCommand(ctx context.Context, app core.App, args []string) (*exec.Cm
 		return runner.BinaryCommand(ctx, app, args)
 	case "python":
 		return runner.PythonCommand(ctx, app, args)
+	case "node":
+		return runner.NodeCommand(ctx, app, args)
 	default:
 		return nil, fmt.Errorf("runtime %q chưa hỗ trợ", app.Runtime)
 	}

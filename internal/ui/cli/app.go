@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,6 +140,8 @@ func addLocalApp(cmd *cobra.Command, mgr *appmgr.Manager, srcDir string) error {
 			return err
 		}
 		installErr = runner.InstallPython(cmd.Context(), *app, nil)
+	case "node":
+		installErr = runNodeInstall(cmd, *app)
 	default:
 		installErr = fmt.Errorf("runtime %q chưa hỗ trợ", app.Runtime)
 	}
@@ -199,6 +202,8 @@ func addGitApp(cmd *cobra.Command, mgr *appmgr.Manager, rawURL, ref string) erro
 			return err
 		}
 		installErr = runner.InstallPython(cmd.Context(), *app, nil)
+	case "node":
+		installErr = runNodeInstall(cmd, *app)
 	default:
 		installErr = fmt.Errorf("runtime %q chưa hỗ trợ", app.Runtime)
 	}
@@ -226,6 +231,30 @@ func addGitApp(cmd *cobra.Command, mgr *appmgr.Manager, rawURL, ref string) erro
 		_, err = fmt.Fprintf(out, "sha256: %s\n", installed.Sha256)
 	}
 	return err
+}
+
+// runNodeInstall chạy npm install và in log ra terminal.
+func runNodeInstall(cmd *cobra.Command, app core.App) error {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	events := make(chan core.Event, 64)
+	done := make(chan error, 1)
+	go func() {
+		done <- runner.InstallNode(ctx, app, events)
+		close(events)
+	}()
+
+	for event := range events {
+		writer := cmd.OutOrStdout()
+		if event.Kind == "error" {
+			writer = cmd.ErrOrStderr()
+		}
+		_, _ = fmt.Fprintln(writer, event.Text)
+	}
+	return <-done
 }
 
 func newAppRunCmd() *cobra.Command {
@@ -314,6 +343,11 @@ func appStatus(app core.App) string {
 		return "chưa cài"
 	case "python":
 		if runner.PythonReady(app) {
+			return "đã cài"
+		}
+		return "chưa cài"
+	case "node":
+		if info, err := os.Stat(filepath.Join(app.Dir, "node_modules")); err == nil && info.IsDir() {
 			return "đã cài"
 		}
 		return "chưa cài"

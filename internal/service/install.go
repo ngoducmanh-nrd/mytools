@@ -385,6 +385,8 @@ func (s *Service) installRuntime(ctx context.Context, app core.App, out chan<- c
 		return runner.Install(ctx, app, out)
 	case "python":
 		return runner.InstallPython(ctx, app, out)
+	case "node":
+		return runner.InstallNode(ctx, app, out)
 	default:
 		return fmt.Errorf("runtime %q chưa hỗ trợ", app.Runtime)
 	}
