@@ -44,12 +44,12 @@ const state = {
 /* ==========================================================================
    TIỆN ÍCH GỌI API & TOAST NOTIFICATION
    ========================================================================== */
-async function api(path, body) {
+async function api(path, body, method) {
   const opts = {
     headers: { "X-MT-Token": TOKEN }
   };
   if (body !== undefined) {
-    opts.method = "POST";
+    opts.method = method || "POST";
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
@@ -152,7 +152,7 @@ function hasParams(tool) {
 /* ==========================================================================
    KHỞI TẠO & TẢI DANH SÁCH CÔNG CỤ (GET /api/tools)
    ========================================================================== */
-async function loadTools(showSuccessToast = false) {
+async function loadTools(showSuccessToast = false, autoSelect = true) {
   const skeleton = document.getElementById("tools-skeleton");
   const listEl = document.getElementById("tool-list");
   const emptyEl = document.getElementById("tools-empty");
@@ -170,7 +170,7 @@ async function loadTools(showSuccessToast = false) {
     renderToolList();
 
     // Nếu chưa chọn tool nào ở Cột 3 và có danh sách tool, chọn sẵn tool đầu tiên
-    if (!state.selectedToolId && state.tools.length > 0) {
+    if (autoSelect && !state.selectedToolId && state.tools.length > 0) {
       selectToolInDock(state.tools[0].id, false);
     } else if (state.selectedToolId) {
       const stillExists = state.tools.some((t) => t.id === state.selectedToolId);
@@ -425,6 +425,17 @@ function createToolCard(tool) {
   };
   topRight.appendChild(favBtn);
 
+  const delBtn = document.createElement("button");
+  delBtn.type = "button";
+  delBtn.className = "card-delete-btn";
+  delBtn.title = `Xóa "${tool.name || tool.id}" khỏi hệ thống`;
+  delBtn.textContent = "🗑";
+  delBtn.onclick = (e) => {
+    e.stopPropagation();
+    deleteTool(tool);
+  };
+  topRight.appendChild(delBtn);
+
   top.append(identity, topRight);
   card.appendChild(top);
 
@@ -541,6 +552,7 @@ function selectToolInDock(toolId, focusFirstInput = false) {
   noToolEl.hidden = true;
   formEl.hidden = false;
   toggleBtn.hidden = false;
+  document.getElementById("btn-delete-tool").hidden = false;
   configBody.hidden = false;
   toggleBtn.textContent = "Thu gọn";
 
@@ -565,6 +577,82 @@ function selectToolInDock(toolId, focusFirstInput = false) {
       if (firstInput) firstInput.focus();
     }
   }
+}
+
+function clearDockSelection() {
+  state.selectedToolId = null;
+  document.querySelectorAll(".tool-card").forEach((el) => el.classList.remove("selected"));
+
+  document.getElementById("dock-tool-icon").textContent = "⚡";
+  document.getElementById("dock-tool-name").textContent = "Chưa chọn công cụ";
+  document.getElementById("dock-tool-meta").textContent = "Chọn 1 tool ở cột giữa để cấu hình hoặc chạy ngay";
+  document.getElementById("dock-no-tool").hidden = false;
+  document.getElementById("dock-param-form").hidden = true;
+  document.getElementById("btn-toggle-config").hidden = true;
+  document.getElementById("btn-delete-tool").hidden = true;
+  document.getElementById("dock-config-body").hidden = false;
+  document.getElementById("dock-params-container").innerHTML = "";
+}
+
+/* ==========================================================================
+   HỘP THOẠI XÁC NHẬN & XÓA TOOL (DELETE /api/app/remove)
+   ========================================================================== */
+function showConfirmDialog(message, title = "Xóa công cụ") {
+  const overlay = document.getElementById("confirm-dialog");
+  const titleEl = document.getElementById("confirm-title");
+  const msgEl = document.getElementById("confirm-message");
+  const okBtn = document.getElementById("btn-confirm-ok");
+  const cancelBtn = document.getElementById("btn-confirm-cancel");
+
+  titleEl.textContent = title;
+  msgEl.textContent = message;
+  overlay.hidden = false;
+  okBtn.focus();
+
+  return new Promise((resolve) => {
+    const finish = (result) => {
+      overlay.hidden = true;
+      overlay.onclick = null;
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      document.removeEventListener("keydown", onKeydown);
+      resolve(result);
+    };
+    const onKeydown = (e) => {
+      if (e.key === "Escape") finish(false);
+    };
+    okBtn.onclick = () => finish(true);
+    cancelBtn.onclick = () => finish(false);
+    overlay.onclick = (e) => {
+      if (e.target === overlay) finish(false);
+    };
+    document.addEventListener("keydown", onKeydown);
+  });
+}
+
+async function deleteTool(tool) {
+  const displayName = tool.name || tool.id;
+  const confirmed = await showConfirmDialog(`Bạn có chắc muốn xóa tool "${displayName}" không?`);
+  if (!confirmed) return;
+
+  try {
+    await api("/api/app/remove", { id: tool.id }, "DELETE");
+  } catch (err) {
+    showToast(err.message, "error", "Xóa thất bại");
+    return;
+  }
+
+  state.favorites.delete(tool.id);
+  localStorage.setItem("mt_favorites", JSON.stringify([...state.favorites]));
+  delete state.recentParams[tool.id];
+  localStorage.setItem("mt_recent_params", JSON.stringify(state.recentParams));
+
+  if (state.selectedToolId === tool.id) {
+    clearDockSelection();
+  }
+
+  showToast(`Đã xóa tool "${displayName}" khỏi hệ thống.`, "success", "Đã xóa công cụ");
+  await loadTools(false, false);
 }
 
 function createParamField(param, savedVal) {
@@ -1327,6 +1415,12 @@ function bindEvents() {
   toggleConfigBtn.onclick = () => {
     configBody.hidden = !configBody.hidden;
     toggleConfigBtn.textContent = configBody.hidden ? "Mở rộng" : "Thu gọn";
+  };
+
+  // Xóa tool đang chọn từ Cột 3
+  document.getElementById("btn-delete-tool").onclick = () => {
+    const tool = state.tools.find((t) => t.id === state.selectedToolId);
+    if (tool) deleteTool(tool);
   };
 
   // Submit form chạy tool ở Cột 3

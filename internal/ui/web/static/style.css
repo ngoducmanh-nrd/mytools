@@ -350,6 +350,16 @@ kbd {
   background: var(--bg-elevated);
 }
 
+.btn-danger {
+  background: var(--fail);
+  color: #ffffff;
+  border-color: var(--fail);
+}
+.btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
 .btn-warn {
   background: var(--warn);
   color: #090d16;
@@ -845,6 +855,30 @@ kbd {
 }
 .fav-btn.active {
   color: var(--warn);
+}
+
+/* Nút thùng rác: chỉ hiện khi hover thẻ tool (hoặc khi focus bàn phím) */
+.card-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  line-height: 1;
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+.tool-card:hover .card-delete-btn,
+.card-delete-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.card-delete-btn:hover {
+  color: var(--fail);
+  background: var(--fail-soft);
 }
 
 .tool-target-line {
@@ -1375,6 +1409,24 @@ kbd {
   border-color: rgba(99, 102, 241, 0.45);
 }
 
+.dock-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.dock-delete-btn {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.35);
+  background: var(--fail-soft);
+}
+.dock-delete-btn:hover {
+  color: #fecaca;
+  border-color: var(--fail);
+  background: rgba(239, 68, 68, 0.25);
+}
+
 /* Progress bar trong Terminal */
 .term-progress-wrap {
   display: flex;
@@ -1616,6 +1668,49 @@ kbd {
   .form-grid-2 {
     grid-template-columns: 1fr;
   }
+}
+
+/* ==========================================================================
+   HỘP THOẠI XÁC NHẬN (CONFIRM DIALOG)
+   ========================================================================== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(2, 6, 23, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.modal-box {
+  width: min(420px, 100%);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 20px;
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--text-main);
+}
+
+.modal-message {
+  margin: 0 0 18px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* Thuộc tính hidden phải thắng các class đặt display (ask banner, skeleton, tab lỗi...) */

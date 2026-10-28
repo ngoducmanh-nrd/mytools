@@ -335,6 +335,9 @@
             </div>
           </div>
           <div class="dock-header-actions">
+            <button type="button" id="btn-delete-tool" class="term-tool-btn dock-delete-btn" title="Xóa công cụ này khỏi hệ thống" hidden>
+              🗑 Xóa
+            </button>
             <button type="button" id="btn-toggle-config" class="term-tool-btn" title="Thu gọn / Mở rộng khung cấu hình" hidden>
               Thu gọn
             </button>
@@ -437,6 +440,18 @@
         </div>
       </section>
     </aside>
+  </div>
+
+  <!-- HỘP THOẠI XÁC NHẬN HÀNH ĐỘNG NGUY HIỂM -->
+  <div id="confirm-dialog" class="modal-overlay" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <h3 id="confirm-title" class="modal-title">Xóa công cụ</h3>
+      <p id="confirm-message" class="modal-message">Bạn có chắc muốn xóa tool này không?</p>
+      <div class="modal-actions">
+        <button type="button" id="btn-confirm-cancel" class="btn btn-ghost btn-sm">Hủy</button>
+        <button type="button" id="btn-confirm-ok" class="btn btn-danger btn-sm">Xóa</button>
+      </div>
+    </div>
   </div>
 
   <!-- TOAST NOTIFICATION CONTAINER -->
