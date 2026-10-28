@@ -150,6 +150,20 @@ func TestExtractFlagsDedupesInOrder(t *testing.T) {
 	}
 }
 
+func TestExtractFlagsSkipsLineWrapped(t *testing.T) {
+	// Cờ bị cắt dòng kiểu "--no-js-\n    runtimes" không phải cờ thật.
+	got := extractFlags([]byte("--help --no-js-\n    runtimes --output -"))
+	want := []string{"--help", "--output"}
+	if len(got) != len(want) {
+		t.Fatalf("extractFlags = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("extractFlags = %v, want %v", got, want)
+		}
+	}
+}
+
 func TestFormatFlagsSummaryCaps(t *testing.T) {
 	flags := make([]string, 35)
 	for i := range flags {

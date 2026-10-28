@@ -111,6 +111,26 @@ func TestRunToolRawArgs(t *testing.T) {
 	}
 }
 
+func TestToolHelpRejects(t *testing.T) {
+	s := newTestService(t)
+	ctx := context.Background()
+
+	if _, err := s.ToolHelp(ctx, ""); err == nil {
+		t.Fatal("thiếu id phải lỗi")
+	}
+	if _, err := s.ToolHelp(ctx, "khong-co"); err == nil {
+		t.Fatal("tool lạ phải lỗi")
+	}
+	// Tool URL không có --help.
+	if _, err := s.ToolHelp(ctx, "movies"); err == nil || !strings.Contains(err.Error(), "không có --help") {
+		t.Fatalf("movies: %v", err)
+	}
+	// Tool app chưa cài: lỗi từ runner khi thiếu file chạy.
+	if _, err := s.ToolHelp(ctx, "dl"); err == nil || !strings.Contains(err.Error(), `app "yt-dlp" chưa cài`) {
+		t.Fatalf("dl chưa cài: %v", err)
+	}
+}
+
 func TestResolveParams(t *testing.T) {
 	tool := &core.Tool{
 		ID: "dl",

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"mytools/internal/core"
+	"mytools/internal/runner"
 )
 
 //go:embed static
@@ -23,6 +24,7 @@ var staticFS embed.FS
 type ToolRunner interface {
 	ListTools() ([]core.Tool, error)
 	RunTool(ctx context.Context, id string, params map[string]string, rawArgs string) (string, error)
+	ToolHelp(ctx context.Context, id string) (runner.HelpInfo, error)
 	Subscribe(runID string) (<-chan core.Event, func(), error)
 	Answer(runID, answer string) error
 	InstallTool(ctx context.Context, source string) (string, error)
@@ -132,6 +134,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/style.css", s.handleStyle)
 	mux.HandleFunc("/app.js", s.handleAppJS)
 	mux.HandleFunc("/api/tools", s.handleTools)
+	mux.HandleFunc("GET /api/tools/{id}/help", s.handleToolHelp)
 	mux.HandleFunc("/api/run", s.handleRun)
 	mux.HandleFunc("/api/events", s.handleEvents)
 	mux.HandleFunc("/api/answer", s.handleAnswer)

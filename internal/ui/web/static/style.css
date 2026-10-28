@@ -1728,3 +1728,110 @@ kbd {
 [hidden] {
   display: none !important;
 }
+
+/* ==========================================================================
+   CỘT 3: TRỢ GIÚP CÔNG CỤ (TỰ CHẠY --help KHI CHỌN TOOL APP)
+   ========================================================================== */
+.dock-help {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border-strong);
+}
+
+.dock-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.dock-help-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.dock-help-loading {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.dock-help-note {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.dock-help-flags {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.dock-help-error {
+  font-size: 12.5px;
+  color: var(--fail);
+}
+
+.btn-help-retry {
+  margin-top: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.btn-help-retry:hover {
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+.dock-help-details {
+  margin-top: 8px;
+}
+
+.dock-help-details summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--accent);
+  user-select: none;
+}
+
+.dock-help-details summary:hover {
+  color: var(--accent-hover);
+}
+
+.dock-help-output {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dock-help-path {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}

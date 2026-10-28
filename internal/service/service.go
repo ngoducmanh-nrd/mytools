@@ -170,6 +170,38 @@ func (s *Service) RunTool(ctx context.Context, id string, params map[string]stri
 	return runID, nil
 }
 
+// ToolHelp chạy "--help" của app phía sau tool và trả về tóm tắt cờ hỗ trợ
+// cùng toàn bộ output để giao diện web hiển thị cách dùng.
+func (s *Service) ToolHelp(ctx context.Context, id string) (runner.HelpInfo, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if strings.TrimSpace(id) == "" {
+		return runner.HelpInfo{}, errors.New("thiếu id tool")
+	}
+
+	tools, err := s.ListTools()
+	if err != nil {
+		return runner.HelpInfo{}, err
+	}
+	tool := findTool(tools, id)
+	if tool == nil {
+		return runner.HelpInfo{}, fmt.Errorf("không có tool %q (xem \"mt list\")", id)
+	}
+	if tool.Kind != "app" {
+		return runner.HelpInfo{}, fmt.Errorf("tool %q có kind %q: không có --help", id, tool.Kind)
+	}
+	if tool.App == "" {
+		return runner.HelpInfo{}, fmt.Errorf("tool %q thiếu app", id)
+	}
+
+	app, err := s.mgr.LoadApp(tool.App)
+	if err != nil {
+		return runner.HelpInfo{}, err
+	}
+	return runner.ToolHelp(ctx, *app)
+}
+
 // Subscribe trả về kênh event của một lần chạy: phát lại toàn bộ lịch sử rồi
 // tiếp nối event mới. Hàm hủy trả về sẽ ngắt kênh; bỏ lỡ event nếu kênh đầy.
 func (s *Service) Subscribe(runID string) (<-chan core.Event, func(), error) {

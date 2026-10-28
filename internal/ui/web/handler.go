@@ -73,6 +73,22 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, list)
 }
 
+// handleToolHelp chạy "--help" của tool và trả về tóm tắt cờ + output đầy đủ
+// để giao diện hiển thị cách dùng.
+func (s *Server) handleToolHelp(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	info, err := s.runner.ToolHelp(r.Context(), id)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"summary": info.Summary,
+		"output":  info.Output,
+		"path":    info.Path,
+	})
+}
+
 type runRequest struct {
 	ID      string            `json:"id"`
 	Params  map[string]string `json:"params"`

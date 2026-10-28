@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"mytools/internal/core"
+	"mytools/internal/runner"
 )
 
 type fakeRun struct {
@@ -92,6 +93,22 @@ func (f *fakeRunner) RunTool(ctx context.Context, id string, params map[string]s
 		}
 	}
 	return "", fmt.Errorf("không có tool %q", id)
+}
+
+func (f *fakeRunner) ToolHelp(ctx context.Context, id string) (runner.HelpInfo, error) {
+	for _, tool := range f.tools {
+		if tool.ID == id {
+			if tool.Kind != "app" {
+				return runner.HelpInfo{}, fmt.Errorf("tool %q có kind %q: không có --help", id, tool.Kind)
+			}
+			return runner.HelpInfo{
+				Summary: "Cờ hỗ trợ (từ --help): --force --output",
+				Output:  "SỬ DỤNG: yt-dlp [tùy chọn]\n  --force    Ép tải lại\n",
+				Path:    `C:\apps\yt-dlp\help.txt`,
+			}, nil
+		}
+	}
+	return runner.HelpInfo{}, fmt.Errorf("không có tool %q", id)
 }
 
 func (f *fakeRunner) Subscribe(runID string) (<-chan core.Event, func(), error) {
@@ -430,6 +447,43 @@ func TestRunEndpoint(t *testing.T) {
 	resp, parsed = post(`không phải JSON`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("JSON hỏng: %d", resp.StatusCode)
+	}
+}
+
+func TestToolHelpEndpoint(t *testing.T) {
+	_, ts := newTestServer(t, newFakeRunner())
+
+	get := func(path string) (*http.Response, map[string]any) {
+		t.Helper()
+		resp, err := http.Get(ts.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var parsed map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&parsed)
+		return resp, parsed
+	}
+
+	resp, parsed := get("/api/tools/dl/help")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("help: %d %v", resp.StatusCode, parsed)
+	}
+	if parsed["summary"] == nil || !strings.Contains(parsed["summary"].(string), "--force") {
+		t.Errorf("summary = %v", parsed["summary"])
+	}
+	if parsed["output"] == nil || !strings.Contains(parsed["output"].(string), "SỬ DỤNG") {
+		t.Errorf("output = %v", parsed["output"])
+	}
+	if parsed["path"] == nil || parsed["path"] == "" {
+		t.Errorf("path = %v", parsed["path"])
+	}
+
+	if resp, parsed := get("/api/tools/movies/help"); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("help url tool: %d %v", resp.StatusCode, parsed)
+	}
+	if resp, parsed := get("/api/tools/khong-co/help"); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("help tool lạ: %d %v", resp.StatusCode, parsed)
 	}
 }
 

@@ -25,6 +25,7 @@ const state = {
   favorites: new Set(JSON.parse(localStorage.getItem("mt_favorites") || "[]")),
   recentParams: JSON.parse(localStorage.getItem("mt_recent_params") || "{}"),
   recentRawArgs: JSON.parse(localStorage.getItem("mt_recent_raw_args") || "{}"),
+  helpCache: {},              // toolID -> {summary, output, path} kết quả --help trong phiên
 
   // Quản lý các phiên chạy (runs) trong Terminal Dock (Cột 3)
   runs: new Map(),           // runID -> RunSession
@@ -79,8 +80,16 @@ function showToast(message, type = "info", title = "") {
     info:    { icon: "ℹ", defaultTitle: "Thông báo", cls: "toast-info" }
   }[type] || { icon: "ℹ", defaultTitle: "Thông báo", cls: "toast-info" };
 
+  const fullTitle = title || meta.defaultTitle;
+  // Chống trùng lặp: toast cùng loại, tiêu đề và nội dung đang hiển thị thì bỏ qua.
+  const dedupeKey = `${meta.cls}|${fullTitle}|${message}`;
+  for (const el of container.children) {
+    if (el.dataset.toastKey === dedupeKey) return;
+  }
+
   const toast = document.createElement("div");
   toast.className = `toast ${meta.cls}`;
+  toast.dataset.toastKey = dedupeKey;
 
   const iconEl = document.createElement("div");
   iconEl.className = "toast-icon";
@@ -91,7 +100,7 @@ function showToast(message, type = "info", title = "") {
 
   const titleEl = document.createElement("div");
   titleEl.className = "toast-title";
-  titleEl.textContent = title || meta.defaultTitle;
+  titleEl.textContent = fullTitle;
 
   const msgEl = document.createElement("p");
   msgEl.className = "toast-msg";
@@ -479,9 +488,10 @@ function createToolCard(tool) {
   actionBtn.type = "button";
 
   if (!hasParams(tool)) {
-    // Tool KHÔNG có param -> Nút "Chạy ngay"
+    // Tool KHÔNG có param -> Nút "Mở ngay" (URL) hoặc "Chạy ngay" (app)
+    const isURLTool = tool.kind === "url";
     actionBtn.className = "btn btn-run-now";
-    actionBtn.innerHTML = `<span>▶ Chạy ngay</span>`;
+    actionBtn.innerHTML = `<span>${isURLTool ? "↗ Mở ngay" : "▶ Chạy ngay"}</span>`;
     actionBtn.onclick = (e) => {
       e.stopPropagation();
       selectToolInDock(tool.id, false);
@@ -562,10 +572,12 @@ function selectToolInDock(toolId, focusFirstInput = false) {
 
   if (!hasParams(tool)) {
     resetParamsBtn.hidden = true;
-    runLabel.textContent = "Chạy ngay";
+    runLabel.textContent = tool.kind === "url" ? "Mở ngay" : "Chạy ngay";
     const info = document.createElement("div");
     info.className = "no-param-banner";
-    info.textContent = "Công cụ này không yêu cầu tham số đầu vào. Nhấn \"Chạy ngay\" để khởi chạy.";
+    info.textContent = tool.kind === "url"
+      ? "Công cụ dạng URL — nhấn \"Mở ngay\" để mở trong tab mới."
+      : "Công cụ này không yêu cầu tham số đầu vào. Nhấn \"Chạy ngay\" để khởi chạy.";
     paramsContainer.appendChild(info);
   } else {
     resetParamsBtn.hidden = false;
@@ -580,6 +592,7 @@ function selectToolInDock(toolId, focusFirstInput = false) {
   }
 
   paramsContainer.appendChild(createRawArgsField(state.recentRawArgs[tool.id] || ""));
+  appendHelpSection(tool);
 }
 
 function clearDockSelection() {
@@ -649,6 +662,7 @@ async function deleteTool(tool) {
   localStorage.setItem("mt_favorites", JSON.stringify([...state.favorites]));
   delete state.recentParams[tool.id];
   delete state.recentRawArgs[tool.id];
+  delete state.helpCache[tool.id];
   localStorage.setItem("mt_recent_params", JSON.stringify(state.recentParams));
   localStorage.setItem("mt_recent_raw_args", JSON.stringify(state.recentRawArgs));
 
@@ -766,6 +780,115 @@ function createRawArgsField(savedVal) {
   return wrap;
 }
 
+/* ==========================================================================
+   CỘT 3: TRỢ GIÚP CÔNG CỤ (TỰ CHẠY --help KHI CHỌN TOOL APP)
+   ========================================================================== */
+function appendHelpSection(tool) {
+  const old = document.getElementById("dock-help");
+  if (old) old.remove();
+  if (tool.kind !== "app") return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "dock-help";
+  wrap.className = "dock-help";
+
+  const header = document.createElement("div");
+  header.className = "dock-help-header";
+  const title = document.createElement("span");
+  title.className = "dock-help-title";
+  title.textContent = "Trợ giúp công cụ (--help)";
+  header.appendChild(title);
+
+  const body = document.createElement("div");
+  body.className = "dock-help-body";
+
+  wrap.append(header, body);
+  document.getElementById("dock-params-container").appendChild(wrap);
+  renderToolHelp(tool, body);
+}
+
+async function renderToolHelp(tool, body) {
+  const cached = state.helpCache[tool.id];
+  if (cached) {
+    fillHelpBody(body, cached);
+    return;
+  }
+
+  body.textContent = "";
+  const loading = document.createElement("div");
+  loading.className = "dock-help-loading";
+  loading.textContent = "Đang chạy --help…";
+  body.appendChild(loading);
+
+  let data;
+  try {
+    const res = await fetch(`/api/tools/${encodeURIComponent(tool.id)}/help`);
+    if (!res.ok) {
+      const parsed = await res.json().catch(() => ({}));
+      throw new Error(parsed.error || `Lỗi HTTP ${res.status}`);
+    }
+    data = await res.json();
+  } catch (err) {
+    body.textContent = "";
+    const fail = document.createElement("div");
+    fail.className = "dock-help-error";
+    fail.textContent = `Không lấy được --help: ${err.message}`;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "btn-help-retry";
+    retry.textContent = "Thử lại";
+    retry.onclick = () => renderToolHelp(tool, body);
+    body.append(fail, retry);
+    return;
+  }
+
+  const info = {
+    summary: String(data.summary || ""),
+    output: String(data.output || ""),
+    path: String(data.path || "")
+  };
+  state.helpCache[tool.id] = info;
+  fillHelpBody(body, info);
+}
+
+function fillHelpBody(body, info) {
+  body.textContent = "";
+
+  if (!info.summary && !info.output) {
+    const note = document.createElement("div");
+    note.className = "dock-help-note";
+    note.textContent = "Tool này không hỗ trợ --help (GUI).";
+    body.appendChild(note);
+    return;
+  }
+
+  if (info.summary) {
+    const flagsLine = document.createElement("div");
+    flagsLine.className = "dock-help-flags";
+    flagsLine.textContent = info.summary;
+    body.appendChild(flagsLine);
+  }
+
+  if (info.output) {
+    const details = document.createElement("details");
+    details.className = "dock-help-details";
+    const summary = document.createElement("summary");
+    summary.textContent = "Xem toàn bộ output --help";
+    const pre = document.createElement("pre");
+    pre.className = "dock-help-output";
+    pre.textContent = info.output;
+    details.append(summary, pre);
+    body.appendChild(details);
+  }
+
+  if (info.path) {
+    const pathLine = document.createElement("div");
+    pathLine.className = "dock-help-path";
+    pathLine.textContent = `Đã lưu: ${info.path}`;
+    body.appendChild(pathLine);
+  }
+}
+
 function collectDockParams(tool) {
   const params = {};
   if (!hasParams(tool)) return params;
@@ -787,6 +910,13 @@ function collectDockParams(tool) {
    CỘT 3 (PHẦN DƯỚI): THỰC THI TOOL (POST /api/run) & TERMINAL SSE (/api/events)
    ========================================================================== */
 async function executeToolRun(tool, params, rawArgs = "") {
+  // Tool dạng URL không chạy tiến trình: mở thẳng trong tab mới.
+  if (tool.kind === "url") {
+    window.open(tool.target, "_blank", "noopener,noreferrer");
+    showToast(`Đã mở "${tool.name || tool.id}" trong tab mới.`, "success", "Đã mở công cụ");
+    return;
+  }
+
   // Lưu lại lịch sử tham số vào localStorage
   if (hasParams(tool)) {
     state.recentParams[tool.id] = params;

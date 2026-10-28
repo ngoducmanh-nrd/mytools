@@ -21,13 +21,20 @@ const (
 
 var flagPattern = regexp.MustCompile(`--[A-Za-z0-9][A-Za-z0-9-]*`)
 
-// HelpFlags chạy "<app> --help" (fallback "-h") ngay sau khi cài, trích các cờ
-// dạng --flag trong output, ghi toàn bộ output vào help.txt trong thư mục app
-// và trả về chuỗi tóm tắt để in ra màn hình. App GUI bị bỏ qua để không mở
-// cửa sổ; lỗi trả về không làm hỏng việc cài đặt.
-func HelpFlags(ctx context.Context, app core.App) (string, error) {
+// HelpInfo chứa tóm tắt cờ hỗ trợ, toàn bộ output của "--help" và đường dẫn
+// file help.txt đã ghi trong thư mục app.
+type HelpInfo struct {
+	Summary string
+	Output  string
+	Path    string
+}
+
+// HelpInfo chạy "<app> --help" (fallback "-h"), trích các cờ dạng --flag
+// trong output, ghi toàn bộ output vào help.txt trong thư mục app và trả về
+// tóm tắt kèm output đầy đủ. App GUI bị bỏ qua để không mở cửa sổ.
+func ToolHelp(ctx context.Context, app core.App) (HelpInfo, error) {
 	if app.GUI {
-		return "", nil
+		return HelpInfo{}, nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -38,16 +45,30 @@ func HelpFlags(ctx context.Context, app core.App) (string, error) {
 		firstErr := err
 		output, err = runHelp(ctx, app, "-h")
 		if err != nil {
-			return "", fmt.Errorf("%w (thử --help cũng thất bại: %v)", err, firstErr)
+			return HelpInfo{}, fmt.Errorf("%w (thử --help cũng thất bại: %v)", err, firstErr)
 		}
 	}
 
 	flags := extractFlags(output)
 	helpPath := filepath.Join(app.Dir, "help.txt")
 	if err := writeHelpFile(helpPath, output); err != nil {
+		return HelpInfo{}, err
+	}
+	return HelpInfo{
+		Summary: formatFlagsSummary(flags, helpPath),
+		Output:  string(output),
+		Path:    helpPath,
+	}, nil
+}
+
+// HelpFlags chạy "<app> --help" ngay sau khi cài và trả về chuỗi tóm tắt các
+// cờ hỗ trợ để in ra màn hình; lỗi trả về không làm hỏng việc cài đặt.
+func HelpFlags(ctx context.Context, app core.App) (string, error) {
+	info, err := ToolHelp(ctx, app)
+	if err != nil {
 		return "", err
 	}
-	return formatFlagsSummary(flags, helpPath), nil
+	return info.Summary, nil
 }
 
 func runHelp(ctx context.Context, app core.App, flag string) ([]byte, error) {
@@ -88,7 +109,21 @@ func helpCommand(ctx context.Context, app core.App, flag string) (*exec.Cmd, err
 func extractFlags(output []byte) []string {
 	seen := make(map[string]struct{})
 	var flags []string
-	for _, match := range flagPattern.FindAllString(string(output), -1) {
+	for _, loc := range flagPattern.FindAllStringIndex(string(output), -1) {
+		match := string(output[loc[0]:loc[1]])
+		// Bỏ qua cờ bị cắt dòng kiểu "--no-js-\n    runtimes".
+		if strings.HasSuffix(match, "-") {
+			rest := string(output[loc[1]:])
+			idx := strings.IndexFunc(rest, func(r rune) bool {
+				return r != ' ' && r != '\t' && r != '\r' && r != '\n'
+			})
+			if idx >= 0 {
+				next := rune(rest[idx])
+				if next == '-' || (next >= 'A' && next <= 'Z') || (next >= 'a' && next <= 'z') || (next >= '0' && next <= '9') {
+					continue
+				}
+			}
+		}
 		if _, ok := seen[match]; ok {
 			continue
 		}
