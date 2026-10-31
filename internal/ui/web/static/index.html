@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="mt-token" content="__MT_TOKEN__">
   <title>mt — DevTools Workspace</title>
+  <script>
+    (() => {
+      try {
+        if (localStorage.getItem("mt_theme") === "light") {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%236366f1'/%3E%3Cpath d='M6.5 8l4 4-4 4' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Cpath d='M12.5 16h5' stroke='%23fff' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -34,6 +44,7 @@
         id="search-input"
         class="search-input"
         placeholder="Tìm kiếm công cụ theo tên, ID, hoặc #tag..."
+        aria-label="Tìm kiếm công cụ theo tên, ID hoặc tag"
         autocomplete="off"
         spellcheck="false"
       >
@@ -151,7 +162,7 @@
               </button>
             </div>
             <div class="view-toggle" role="group" aria-label="Chế độ hiển thị">
-              <button type="button" id="btn-view-grid" class="view-btn active" title="Dạng lưới" aria-label="Dạng lưới">
+              <button type="button" id="btn-view-grid" class="view-btn active" title="Dạng lưới" aria-label="Dạng lưới" aria-pressed="true">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
                   <rect x="3" y="3" width="7" height="7"></rect>
                   <rect x="14" y="3" width="7" height="7"></rect>
@@ -159,7 +170,7 @@
                   <rect x="3" y="14" width="7" height="7"></rect>
                 </svg>
               </button>
-              <button type="button" id="btn-view-list" class="view-btn" title="Dạng danh sách gọn" aria-label="Dạng danh sách gọn">
+              <button type="button" id="btn-view-list" class="view-btn" title="Dạng danh sách gọn" aria-label="Dạng danh sách gọn" aria-pressed="false">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="8" y1="6" x2="21" y2="6"></line>
                   <line x1="8" y1="12" x2="21" y2="12"></line>
@@ -377,7 +388,7 @@
                 <line x1="14" y1="11" x2="14" y2="17"></line>
               </svg>
             </button>
-            <button type="button" id="btn-toggle-config" class="term-tool-btn" title="Thu gọn / Mở rộng khung cấu hình" aria-label="Thu gọn khung cấu hình" hidden>
+            <button type="button" id="btn-toggle-config" class="term-tool-btn" title="Thu gọn / Mở rộng khung cấu hình" aria-label="Thu gọn khung cấu hình" aria-expanded="true" aria-controls="dock-config-body" hidden>
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="18 15 12 9 6 15"></polyline>
               </svg>
@@ -399,7 +410,7 @@
 
             <div class="dock-form-footer">
               <button type="button" id="btn-reset-params" class="btn btn-ghost btn-sm" title="Khôi phục giá trị mặc định">
-                Mặc định
+                Đặt lại
               </button>
               <button type="submit" id="btn-run-selected" class="btn btn-run-primary">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
@@ -416,7 +427,7 @@
       <section class="dock-terminal">
         <!-- RUN SESSION TABS -->
         <div class="run-tabs-bar">
-          <div class="run-tabs-scroll" id="run-tabs-list" role="tablist">
+          <div class="run-tabs-scroll" id="run-tabs-list" role="group" aria-label="Các phiên chạy">
             <!-- Dynamic tabs for each run_id -->
           </div>
           <button type="button" id="btn-clear-all-runs" class="btn btn-ghost btn-sm" title="Đóng các phiên đã kết thúc" hidden>

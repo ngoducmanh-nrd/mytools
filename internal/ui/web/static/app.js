@@ -675,6 +675,23 @@ function clearDockSelection() {
 /* ==========================================================================
    HỘP THOẠI XÁC NHẬN & XÓA TOOL (DELETE /api/app/remove)
    ========================================================================== */
+function trapFocusWithin(container, event) {
+  if (event.key !== "Tab") return;
+  const focusables = [...container.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  )].filter((el) => !el.disabled && el.getClientRects().length > 0);
+  if (focusables.length === 0) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function showConfirmDialog(message, title = "Xóa công cụ") {
   const overlay = document.getElementById("confirm-dialog");
   const titleEl = document.getElementById("confirm-title");
@@ -682,10 +699,11 @@ function showConfirmDialog(message, title = "Xóa công cụ") {
   const okBtn = document.getElementById("btn-confirm-ok");
   const cancelBtn = document.getElementById("btn-confirm-cancel");
 
+  const previousFocus = document.activeElement;
   titleEl.textContent = title;
   msgEl.textContent = message;
   overlay.hidden = false;
-  okBtn.focus();
+  cancelBtn.focus();
 
   return new Promise((resolve) => {
     const finish = (result) => {
@@ -694,10 +712,20 @@ function showConfirmDialog(message, title = "Xóa công cụ") {
       okBtn.onclick = null;
       cancelBtn.onclick = null;
       document.removeEventListener("keydown", onKeydown);
+      const target = previousFocus && document.contains(previousFocus) ? previousFocus : null;
+      if (target && target.getClientRects().length > 0) {
+        target.focus();
+      } else {
+        document.getElementById("search-input").focus();
+      }
       resolve(result);
     };
     const onKeydown = (e) => {
-      if (e.key === "Escape") finish(false);
+      if (e.key === "Escape") {
+        finish(false);
+      } else if (e.key === "Tab") {
+        trapFocusWithin(overlay, e);
+      }
     };
     okBtn.onclick = () => finish(true);
     cancelBtn.onclick = () => finish(false);
@@ -1017,16 +1045,27 @@ function fillHelpBody(body, info, autoOpenOutput = false) {
 /* ==========================================================================
    AGENT MINI: CÀI ĐẶT API (OPENAI-COMPATIBLE) + KHUNG CHAT
    ========================================================================== */
+let agentSettingsReturnFocus = null;
+
 function openAgentSettings() {
+  const dialog = document.getElementById("agent-settings-dialog");
+  if (dialog.hidden) agentSettingsReturnFocus = document.activeElement;
   document.getElementById("agent-base-url").value = state.agent.baseUrl;
   document.getElementById("agent-api-key").value = state.agent.apiKey;
   document.getElementById("agent-model").value = state.agent.model;
-  document.getElementById("agent-settings-dialog").hidden = false;
+  dialog.hidden = false;
   document.getElementById("agent-base-url").focus();
 }
 
 function closeAgentSettings() {
-  document.getElementById("agent-settings-dialog").hidden = true;
+  const dialog = document.getElementById("agent-settings-dialog");
+  if (dialog.hidden) return;
+  dialog.hidden = true;
+  const target = agentSettingsReturnFocus;
+  agentSettingsReturnFocus = null;
+  if (target && document.contains(target) && target.getClientRects().length > 0) {
+    target.focus();
+  }
 }
 
 function saveAgentSettings() {
@@ -1223,6 +1262,7 @@ function startTerminalSession(runID, tool) {
 }
 
 function handleSessionSSEEvent(session, event) {
+  const prevStatus = session.status;
   switch (event.kind) {
     case "ask": {
       session.status = "ask";
@@ -1262,11 +1302,32 @@ function handleSessionSSEEvent(session, event) {
     }
   }
 
-  updateGlobalRunIndicator();
-  renderRunTabs();
-  if (state.activeRunId === session.runID) {
-    renderActiveTerminal();
+  if (session.status !== prevStatus) {
+    updateGlobalRunIndicator();
+    renderRunTabs();
   }
+
+  // Mỗi sự kiện chỉ cập nhật phần đầu terminal; log đã được append trực tiếp
+  // ở appendSessionLog nên không dựng lại toàn bộ danh sách dòng.
+  if (state.activeRunId === session.runID) {
+    updateTerminalHeader(session);
+    if (event.kind === "ask" && session.status === "ask" && session.askPrompt) {
+      document.getElementById("term-ask-input").focus();
+    }
+  }
+}
+
+let pendingScrollFrame = 0;
+
+// Gom nhiều dòng log về một lần cuộn mỗi animation frame để tránh forced layout
+// lặp lại khi tool xả log dày đặc.
+function scheduleTerminalAutoScroll() {
+  if (!state.autoScroll || pendingScrollFrame) return;
+  pendingScrollFrame = requestAnimationFrame(() => {
+    pendingScrollFrame = 0;
+    const out = document.getElementById("term-output");
+    if (state.autoScroll && out) out.scrollTop = out.scrollHeight;
+  });
 }
 
 function appendSessionLog(session, text, cls = "") {
@@ -1277,9 +1338,7 @@ function appendSessionLog(session, text, cls = "") {
   if (state.activeRunId === session.runID) {
     const out = document.getElementById("term-output");
     out.appendChild(createLogLineDOM({ time, text, cls }));
-    if (state.autoScroll) {
-      out.scrollTop = out.scrollHeight;
-    }
+    scheduleTerminalAutoScroll();
   }
 }
 
@@ -1324,17 +1383,30 @@ function createLogLineDOM(lineObj) {
   return span;
 }
 
+function focusActiveRunTab() {
+  const activeMain = document.querySelector("#run-tabs-list .run-tab.active .run-tab-main");
+  if (activeMain) activeMain.focus();
+}
+
 function renderRunTabs() {
   const tabsList = document.getElementById("run-tabs-list");
   const clearAllBtn = document.getElementById("btn-clear-all-runs");
   tabsList.innerHTML = "";
 
-  clearAllBtn.hidden = state.runs.size === 0;
+  const hasFinishedRuns = [...state.runs.values()].some(
+    (session) => session.status === "ok" || session.status === "fail"
+  );
+  clearAllBtn.hidden = !hasFinishedRuns;
 
   for (const [runID, session] of state.runs.entries()) {
-    const tab = document.createElement("button");
-    tab.type = "button";
+    const tab = document.createElement("div");
     tab.className = `run-tab ${state.activeRunId === runID ? "active" : ""}`;
+
+    const mainBtn = document.createElement("button");
+    mainBtn.type = "button";
+    mainBtn.className = "run-tab-main";
+    mainBtn.title = `${session.toolName} — phiên #${runID.slice(0, 8)}`;
+    if (state.activeRunId === runID) mainBtn.setAttribute("aria-current", "true");
 
     const dot = document.createElement("span");
     dot.className = `status-dot ${
@@ -1348,25 +1420,30 @@ function renderRunTabs() {
     if (session.status === "fail") dot.style.background = "var(--fail)";
 
     const label = document.createElement("span");
-    label.textContent = `${session.toolName}`;
+    label.className = "run-tab-label";
+    label.textContent = session.toolName;
 
-    const closeBtn = document.createElement("span");
-    closeBtn.className = "run-tab-close";
-    closeBtn.innerHTML = svgIcon("x", 9, { sw: 2.4 });
-    closeBtn.title = "Đóng tab này";
-    closeBtn.setAttribute("role", "button");
-    closeBtn.setAttribute("aria-label", "Đóng tab này");
-    closeBtn.onclick = (e) => {
-      e.stopPropagation();
-      closeRunTab(runID);
-    };
+    const idTag = document.createElement("span");
+    idTag.className = "run-tab-id";
+    idTag.textContent = `#${runID.slice(0, 4)}`;
 
-    tab.append(dot, label, closeBtn);
-    tab.onclick = () => {
+    mainBtn.append(dot, label, idTag);
+    mainBtn.onclick = () => {
       state.activeRunId = runID;
       renderRunTabs();
       renderActiveTerminal();
+      focusActiveRunTab();
     };
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "run-tab-close";
+    closeBtn.innerHTML = svgIcon("x", 9, { sw: 2.4 });
+    closeBtn.title = "Đóng tab này";
+    closeBtn.setAttribute("aria-label", `Đóng phiên ${session.toolName}`);
+    closeBtn.onclick = () => closeRunTab(runID);
+
+    tab.append(mainBtn, closeBtn);
     tabsList.appendChild(tab);
   }
 }
@@ -1385,34 +1462,56 @@ function closeRunTab(runID) {
   updateGlobalRunIndicator();
   renderRunTabs();
   renderActiveTerminal();
+
+  focusActiveRunTab();
 }
 
 function renderActiveTerminal() {
+  const session = state.activeRunId ? state.runs.get(state.activeRunId) : null;
+  updateTerminalHeader(session);
+
+  const outputEl = document.getElementById("term-output");
+  if (!session) {
+    outputEl.innerHTML = `<span class="log-line log-muted">$ Sẵn sàng kết nối luồng sự kiện Server-Sent Events (/api/events)...</span>`;
+    return;
+  }
+
+  outputEl.innerHTML = "";
+  for (const line of session.lines) {
+    outputEl.appendChild(createLogLineDOM(line));
+  }
+  scheduleTerminalAutoScroll();
+
+  if (session.status === "ask" && session.askPrompt) {
+    document.getElementById("term-ask-input").focus();
+  }
+}
+
+function updateTerminalHeader(session) {
   const titleEl = document.getElementById("term-active-title");
   const badgeEl = document.getElementById("term-status-badge");
   const timerEl = document.getElementById("term-timer");
   const progWrap = document.getElementById("term-progress-wrap");
   const progFill = document.getElementById("term-progress-fill");
   const progPct = document.getElementById("term-progress-pct");
-  const outputEl = document.getElementById("term-output");
   const askBox = document.getElementById("term-ask-box");
   const askText = document.getElementById("term-ask-text");
-  const askInput = document.getElementById("term-ask-input");
 
-  const session = state.activeRunId ? state.runs.get(state.activeRunId) : null;
   if (!session) {
+    titleEl.hidden = false;
     titleEl.textContent = "Terminal SSE";
     badgeEl.className = "term-status status-idle";
     badgeEl.textContent = "CHỜ LỆNH";
     timerEl.textContent = "00:00.0s";
     progWrap.hidden = true;
     askBox.hidden = true;
-    outputEl.innerHTML = `<span class="log-line log-muted">$ Sẵn sàng kết nối luồng sự kiện Server-Sent Events (/api/events)...</span>`;
     return;
   }
 
-  titleEl.textContent = `${session.toolName} (#${session.runID.slice(0, 8)})`;
-  timerEl.textContent = formatDuration(session.elapsedMs);
+  // Tên phiên đã có trên tab đang active; header giữ trạng thái + đồng hồ.
+  titleEl.hidden = true;
+  const timerText = formatDuration(session.elapsedMs);
+  if (timerEl.textContent !== timerText) timerEl.textContent = timerText;
 
   const statusMeta = {
     running: { text: "ĐANG CHẠY", cls: "status-running" },
@@ -1421,32 +1520,22 @@ function renderActiveTerminal() {
     fail:    { text: "LỖI", cls: "status-fail" }
   }[session.status] || { text: "CHỜ LỆNH", cls: "status-idle" };
 
-  badgeEl.className = `term-status ${statusMeta.cls}`;
-  badgeEl.textContent = statusMeta.text;
+  const badgeCls = `term-status ${statusMeta.cls}`;
+  if (badgeEl.className !== badgeCls) badgeEl.className = badgeCls;
+  if (badgeEl.textContent !== statusMeta.text) badgeEl.textContent = statusMeta.text;
 
-  // Progress bar
   if (typeof session.pct === "number") {
     progWrap.hidden = false;
-    progFill.style.width = `${session.pct}%`;
-    progPct.textContent = `${session.pct}%`;
+    const width = `${session.pct}%`;
+    if (progFill.style.width !== width) progFill.style.width = width;
+    if (progPct.textContent !== width) progPct.textContent = width;
   } else {
     progWrap.hidden = true;
   }
 
-  // Render các dòng log
-  outputEl.innerHTML = "";
-  for (const line of session.lines) {
-    outputEl.appendChild(createLogLineDOM(line));
-  }
-  if (state.autoScroll) {
-    outputEl.scrollTop = outputEl.scrollHeight;
-  }
-
-  // Ô nhập liệu nổi bật khi có sự kiện ask
   if (session.status === "ask" && session.askPrompt) {
     askBox.hidden = false;
     askText.textContent = session.askPrompt;
-    askInput.focus();
   } else {
     askBox.hidden = true;
   }
@@ -1462,6 +1551,7 @@ async function submitTerminalAskAnswer() {
 
   try {
     sendBtn.disabled = true;
+    const prevStatus = session.status;
     await api("/api/answer", { run_id: session.runID, answer });
     appendSessionLog(session, `> Phản hồi đã gửi: ${answer}`, "log-info");
     input.value = "";
@@ -1471,8 +1561,8 @@ async function submitTerminalAskAnswer() {
       session.askPrompt = null;
     }
     updateGlobalRunIndicator();
-    renderRunTabs();
-    renderActiveTerminal();
+    if (session.status !== prevStatus) renderRunTabs();
+    updateTerminalHeader(session);
   } catch (err) {
     showToast(err.message, "error", "Gửi câu trả lời thất bại");
   } finally {
@@ -1770,6 +1860,8 @@ function bindEvents() {
         }
       }
     } else if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      const target = e.target instanceof Element ? e.target : null;
+      if (target && target.closest("#agent-panel, .modal-overlay")) return;
       if (state.centerView === "tools" && state.selectedToolId) {
         const form = document.getElementById("dock-param-form");
         if (form && !form.hidden) {
@@ -1796,6 +1888,9 @@ function bindEvents() {
   document.getElementById("agent-settings-dialog").onclick = (e) => {
     if (e.target === e.currentTarget) closeAgentSettings();
   };
+  document.getElementById("agent-settings-dialog").addEventListener("keydown", (e) => {
+    trapFocusWithin(e.currentTarget, e);
+  });
   document.getElementById("btn-agent-toggle").onclick = toggleAgentPanel;
   document.getElementById("btn-agent-close").onclick = closeAgentPanel;
   document.getElementById("btn-agent-settings-small").onclick = openAgentSettings;
@@ -1808,7 +1903,10 @@ function bindEvents() {
   });
 
   // Nút Làm mới & Đổi Theme
-  document.getElementById("btn-refresh").onclick = () => loadTools(true);
+  document.getElementById("btn-refresh").onclick = () => {
+    state.helpCache = {};
+    loadTools(true);
+  };
   document.getElementById("btn-theme").onclick = toggleTheme;
 
   // Xóa lọc
@@ -1827,12 +1925,16 @@ function bindEvents() {
     state.viewMode = "grid";
     btnGrid.classList.add("active");
     btnList.classList.remove("active");
+    btnGrid.setAttribute("aria-pressed", "true");
+    btnList.setAttribute("aria-pressed", "false");
     renderToolList();
   };
   btnList.onclick = () => {
     state.viewMode = "list";
     btnList.classList.add("active");
     btnGrid.classList.remove("active");
+    btnList.setAttribute("aria-pressed", "true");
+    btnGrid.setAttribute("aria-pressed", "false");
     renderToolList();
   };
 
@@ -1842,6 +1944,7 @@ function bindEvents() {
   toggleConfigBtn.onclick = () => {
     configBody.hidden = !configBody.hidden;
     toggleConfigBtn.innerHTML = svgIcon(configBody.hidden ? "chevronDown" : "chevronUp", 14, { sw: 2.2 });
+    toggleConfigBtn.setAttribute("aria-expanded", String(!configBody.hidden));
     toggleConfigBtn.setAttribute("aria-label", configBody.hidden ? "Mở rộng khung cấu hình" : "Thu gọn khung cấu hình");
   };
 
@@ -1895,6 +1998,7 @@ function bindEvents() {
   autoScrollBtn.onclick = () => {
     state.autoScroll = !state.autoScroll;
     autoScrollBtn.classList.toggle("active", state.autoScroll);
+    autoScrollBtn.setAttribute("aria-pressed", String(state.autoScroll));
   };
 
   document.getElementById("btn-term-copy").onclick = async () => {
