@@ -91,11 +91,11 @@ function showToast(message, type = "info", title = "") {
   if (!container) return;
 
   const meta = {
-    success: { icon: "✓", defaultTitle: "Thành công", cls: "toast-success" },
-    error:   { icon: "✕", defaultTitle: "Đã xảy ra lỗi", cls: "toast-error" },
-    warn:    { icon: "⚠", defaultTitle: "Chú ý", cls: "toast-warn" },
-    info:    { icon: "ℹ", defaultTitle: "Thông báo", cls: "toast-info" }
-  }[type] || { icon: "ℹ", defaultTitle: "Thông báo", cls: "toast-info" };
+    success: { icon: svgIcon("check", 13, { sw: 2.4 }), defaultTitle: "Thành công", cls: "toast-success" },
+    error:   { icon: svgIcon("x", 13, { sw: 2.4 }), defaultTitle: "Đã xảy ra lỗi", cls: "toast-error" },
+    warn:    { icon: svgIcon("alert", 13), defaultTitle: "Chú ý", cls: "toast-warn" },
+    info:    { icon: svgIcon("info", 13), defaultTitle: "Thông báo", cls: "toast-info" }
+  }[type] || { icon: svgIcon("info", 13), defaultTitle: "Thông báo", cls: "toast-info" };
 
   const fullTitle = title || meta.defaultTitle;
   // Chống trùng lặp: toast cùng loại, tiêu đề và nội dung đang hiển thị thì bỏ qua.
@@ -110,7 +110,7 @@ function showToast(message, type = "info", title = "") {
 
   const iconEl = document.createElement("div");
   iconEl.className = "toast-icon";
-  iconEl.textContent = meta.icon;
+  iconEl.innerHTML = meta.icon;
 
   const contentEl = document.createElement("div");
   contentEl.className = "toast-content";
@@ -127,7 +127,9 @@ function showToast(message, type = "info", title = "") {
 
   const closeBtn = document.createElement("button");
   closeBtn.className = "toast-close";
-  closeBtn.textContent = "✕";
+  closeBtn.type = "button";
+  closeBtn.setAttribute("aria-label", "Đóng thông báo");
+  closeBtn.innerHTML = svgIcon("x", 12);
   closeBtn.onclick = () => toast.remove();
 
   toast.append(iconEl, contentEl, closeBtn);
@@ -141,14 +143,45 @@ function showToast(message, type = "info", title = "") {
 /* ==========================================================================
    TIỆN ÍCH ĐỊNH DẠNG & ICON THEO KIND
    ========================================================================== */
-function getKindIcon(kind = "") {
+const ICONS = {
+  grid: '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect>',
+  star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>',
+  cli: '<polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>',
+  gui: '<rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line>',
+  globe: '<circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>',
+  package: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line>',
+  server: '<rect x="2" y="2" width="20" height="8" rx="2"></rect><rect x="2" y="14" width="20" height="8" rx="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line>',
+  bolt: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>',
+  play: '<polygon points="5 3 19 12 5 21 5 3"></polygon>',
+  arrowUpRight: '<line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline>',
+  sliders: '<line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line>',
+  trash: '<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line>',
+  check: '<polyline points="20 6 9 17 4 12"></polyline>',
+  x: '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>',
+  alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>',
+  info: '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>',
+  chevronDown: '<polyline points="6 9 12 15 18 9"></polyline>',
+  chevronUp: '<polyline points="18 15 12 9 6 15"></polyline>'
+};
+
+function svgIcon(name, size = 16, opts = {}) {
+  const filled = Boolean(opts.filled);
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="${
+    filled ? "currentColor" : "none"
+  }" stroke="${filled ? "none" : "currentColor"}" stroke-width="${
+    opts.sw || 2
+  }" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.bolt}</svg>`;
+}
+
+function getKindIcon(kind = "", size = 16) {
   const k = String(kind).toLowerCase();
-  if (k.includes("cli") || k.includes("cmd") || k.includes("sh")) return "⌨";
-  if (k.includes("gui") || k.includes("app") || k.includes("win")) return "❖";
-  if (k.includes("url") || k.includes("web") || k.includes("link")) return "🌐";
-  if (k.includes("git") || k.includes("py")) return "📦";
-  if (k.includes("srv") || k.includes("service")) return "⚙";
-  return "⚡";
+  if (k.includes("cli") || k.includes("cmd") || k.includes("sh")) return svgIcon("cli", size);
+  if (k.includes("gui") || k.includes("app") || k.includes("win")) return svgIcon("gui", size);
+  if (k.includes("url") || k.includes("web") || k.includes("link")) return svgIcon("globe", size);
+  if (k.includes("git") || k.includes("py")) return svgIcon("package", size);
+  if (k.includes("srv") || k.includes("service")) return svgIcon("server", size);
+  return svgIcon("bolt", size);
 }
 
 function getKindClass(kind = "") {
@@ -247,15 +280,15 @@ function renderSidebarFilters() {
 
   // Mục "Tất cả" và "Yêu thích"
   const baseItems = [
-    { key: "all", label: "Tất cả công cụ", icon: "⚡", count: state.tools.length },
-    { key: "fav", label: "Đã ghim yêu thích", icon: "★", count: favCount }
+    { key: "all", label: "Tất cả công cụ", icon: svgIcon("grid", 14), count: state.tools.length },
+    { key: "fav", label: "Đã ghim yêu thích", icon: svgIcon("star", 14), count: favCount }
   ];
 
   for (const [k, count] of kindCounts.entries()) {
     baseItems.push({
       key: k,
       label: `Loại: ${k.toUpperCase()}`,
-      icon: getKindIcon(k),
+      icon: getKindIcon(k, 14),
       count
     });
   }
@@ -267,7 +300,7 @@ function renderSidebarFilters() {
 
     const left = document.createElement("span");
     left.className = "filter-item-left";
-    left.textContent = `${item.icon} ${item.label}`;
+    left.innerHTML = `${item.icon}<span>${escapeHTML(item.label)}</span>`;
 
     const badge = document.createElement("span");
     badge.className = "filter-count";
@@ -413,8 +446,8 @@ function createToolCard(tool) {
   identity.className = "tool-identity";
 
   const iconBox = document.createElement("div");
-  iconBox.className = "tool-icon-box";
-  iconBox.textContent = getKindIcon(tool.kind);
+  iconBox.className = `tool-icon-box ${getKindClass(tool.kind)}`;
+  iconBox.innerHTML = getKindIcon(tool.kind, 17);
 
   const titleWrap = document.createElement("div");
   titleWrap.className = "tool-title-wrap";
@@ -445,7 +478,8 @@ function createToolCard(tool) {
   const isFav = state.favorites.has(tool.id);
   favBtn.className = `fav-btn ${isFav ? "active" : ""}`;
   favBtn.title = isFav ? "Bỏ ghim yêu thích" : "Ghim lên đầu";
-  favBtn.textContent = isFav ? "★" : "☆";
+  favBtn.setAttribute("aria-label", isFav ? "Bỏ ghim yêu thích" : "Ghim lên đầu");
+  favBtn.innerHTML = svgIcon("star", 14);
   favBtn.onclick = (e) => {
     e.stopPropagation();
     toggleFavorite(tool.id);
@@ -456,7 +490,8 @@ function createToolCard(tool) {
   delBtn.type = "button";
   delBtn.className = "card-delete-btn";
   delBtn.title = `Xóa "${tool.name || tool.id}" khỏi hệ thống`;
-  delBtn.textContent = "🗑";
+  delBtn.setAttribute("aria-label", delBtn.title);
+  delBtn.innerHTML = svgIcon("trash", 14);
   delBtn.onclick = (e) => {
     e.stopPropagation();
     deleteTool(tool);
@@ -508,7 +543,9 @@ function createToolCard(tool) {
     // Tool KHÔNG có param -> Nút "Mở ngay" (URL) hoặc "Chạy ngay" (app)
     const isURLTool = tool.kind === "url";
     actionBtn.className = "btn btn-run-now";
-    actionBtn.innerHTML = `<span>${isURLTool ? "↗ Mở ngay" : "▶ Chạy ngay"}</span>`;
+    actionBtn.innerHTML = isURLTool
+      ? `${svgIcon("arrowUpRight", 13, { sw: 2.2 })}<span>Mở ngay</span>`
+      : `${svgIcon("play", 12, { filled: true })}<span>Chạy ngay</span>`;
     actionBtn.onclick = (e) => {
       e.stopPropagation();
       selectToolInDock(tool.id, false);
@@ -517,7 +554,7 @@ function createToolCard(tool) {
   } else {
     // Tool CÓ param -> Mở form nhập liệu gọn gàng ở Cột 3 & focus
     actionBtn.className = "btn btn-config-run";
-    actionBtn.innerHTML = `<span>⚙ Cấu hình (${tool.params.length})</span>`;
+    actionBtn.innerHTML = `${svgIcon("sliders", 13)}<span>Cấu hình (${tool.params.length})</span>`;
     actionBtn.onclick = (e) => {
       e.stopPropagation();
       selectToolInDock(tool.id, true);
@@ -571,7 +608,8 @@ function selectToolInDock(toolId, focusFirstInput = false) {
   const toggleBtn = document.getElementById("btn-toggle-config");
   const configBody = document.getElementById("dock-config-body");
 
-  iconEl.textContent = getKindIcon(tool.kind);
+  iconEl.className = `dock-tool-icon ${getKindClass(tool.kind)}`;
+  iconEl.innerHTML = getKindIcon(tool.kind, 16);
   nameEl.textContent = tool.name || tool.id;
   metaEl.textContent = `${tool.id} • ${(tool.kind || "tool").toUpperCase()}${
     tool.target ? ` • ${tool.target}` : ""
@@ -585,7 +623,8 @@ function selectToolInDock(toolId, focusFirstInput = false) {
     tool.params.some((p) => p.name === "out");
   document.getElementById("btn-open-save-dir").hidden = !hasOutParam;
   configBody.hidden = false;
-  toggleBtn.textContent = "Thu gọn";
+  toggleBtn.innerHTML = svgIcon("chevronUp", 14, { sw: 2.2 });
+  toggleBtn.setAttribute("aria-label", "Thu gọn khung cấu hình");
 
   paramsContainer.innerHTML = "";
   const savedValues = state.recentParams[tool.id] || {};
@@ -619,7 +658,9 @@ function clearDockSelection() {
   state.selectedToolId = null;
   document.querySelectorAll(".tool-card").forEach((el) => el.classList.remove("selected"));
 
-  document.getElementById("dock-tool-icon").textContent = "⚡";
+  const dockIcon = document.getElementById("dock-tool-icon");
+  dockIcon.className = "dock-tool-icon";
+  dockIcon.innerHTML = svgIcon("bolt", 16);
   document.getElementById("dock-tool-name").textContent = "Chưa chọn công cụ";
   document.getElementById("dock-tool-meta").textContent = "Chọn 1 tool ở cột giữa để cấu hình hoặc chạy ngay";
   document.getElementById("dock-no-tool").hidden = false;
@@ -813,17 +854,22 @@ function appendHelpSection(tool) {
   wrap.id = "dock-help";
   wrap.className = "dock-help";
 
-  const header = document.createElement("div");
-  header.className = "dock-help-header";
-  const title = document.createElement("span");
-  title.className = "dock-help-title";
-  title.textContent = "Trợ giúp công cụ (--help)";
-  header.appendChild(title);
+  const details = document.createElement("details");
+  details.className = "dock-help-details";
+  details.open = true;
+
+  const summary = document.createElement("summary");
+  summary.className = "dock-help-summary";
+  summary.innerHTML = `${svgIcon("book", 13)}<span class="dock-help-title">Trợ giúp công cụ (--help)</span><span class="help-count" hidden></span><span class="help-chevron">${svgIcon(
+    "chevronDown",
+    13
+  )}</span>`;
 
   const body = document.createElement("div");
   body.className = "dock-help-body";
 
-  wrap.append(header, body);
+  details.append(summary, body);
+  wrap.appendChild(details);
   document.getElementById("dock-params-container").appendChild(wrap);
   renderToolHelp(tool, body);
 }
@@ -879,45 +925,93 @@ function expandDockHelp() {
   if (!help) return;
   const details = help.querySelector("details.dock-help-details");
   if (details && !details.open) details.open = true;
+  const outputDetails = help.querySelector("details.dock-help-output-details");
+  if (outputDetails && !outputDetails.open) outputDetails.open = true;
+}
+
+function parseHelpFlags(summary) {
+  const flags = [];
+  const re = /(^|\s)(--?[A-Za-z0-9][\w-]*)/g;
+  let match;
+  while ((match = re.exec(summary)) !== null) {
+    if (!flags.includes(match[2])) flags.push(match[2]);
+  }
+  const extra = /và (\d+) cờ khác/.exec(summary);
+  const extraCount = extra ? parseInt(extra[1], 10) : 0;
+  return { flags, total: flags.length + extraCount };
 }
 
 function fillHelpBody(body, info, autoOpenOutput = false) {
   body.textContent = "";
 
+  const details = body.closest("details.dock-help-details");
+  const countEl = details ? details.querySelector(".help-count") : null;
+
+  const inner = document.createElement("div");
+  inner.className = "dock-help-body-inner";
+  body.appendChild(inner);
+
   if (!info.summary && !info.output) {
     const note = document.createElement("div");
     note.className = "dock-help-note";
     note.textContent = "Tool này không hỗ trợ --help (GUI).";
-    body.appendChild(note);
+    inner.appendChild(note);
+    if (details) details.open = true;
     return;
   }
 
-  if (info.summary) {
-    const flagsLine = document.createElement("div");
-    flagsLine.className = "dock-help-flags";
-    flagsLine.textContent = info.summary;
-    body.appendChild(flagsLine);
+  const parsed = parseHelpFlags(info.summary || "");
+
+  if (parsed.flags.length > 0) {
+    const row = document.createElement("div");
+    row.className = "dock-help-flags";
+    const maxShown = 6;
+    for (const flag of parsed.flags.slice(0, maxShown)) {
+      const chip = document.createElement("span");
+      chip.className = "help-flag";
+      chip.textContent = flag;
+      row.appendChild(chip);
+    }
+    if (parsed.total > maxShown) {
+      const more = document.createElement("span");
+      more.className = "help-flag help-more";
+      more.textContent = `+${parsed.total - maxShown}`;
+      row.appendChild(more);
+    }
+    inner.appendChild(row);
+    if (countEl) {
+      countEl.hidden = false;
+      countEl.textContent = `${parsed.total} cờ`;
+    }
+  } else if (info.summary) {
+    const note = document.createElement("div");
+    note.className = "dock-help-note";
+    note.textContent = info.summary.replace(/\s*\(xem [^)]*\)\s*$/, "");
+    inner.appendChild(note);
   }
 
   if (info.output) {
-    const details = document.createElement("details");
-    details.className = "dock-help-details";
-    details.open = autoOpenOutput;
-    const summary = document.createElement("summary");
-    summary.textContent = "Xem toàn bộ output --help";
+    const outputDetails = document.createElement("details");
+    outputDetails.className = "dock-help-output-details";
+    outputDetails.open = autoOpenOutput;
+    const outputSummary = document.createElement("summary");
+    outputSummary.textContent = "Xem toàn bộ output --help";
     const pre = document.createElement("pre");
     pre.className = "dock-help-output";
     pre.textContent = info.output;
-    details.append(summary, pre);
-    body.appendChild(details);
+    outputDetails.append(outputSummary, pre);
+    inner.appendChild(outputDetails);
   }
 
   if (info.path) {
     const pathLine = document.createElement("div");
     pathLine.className = "dock-help-path";
+    pathLine.title = info.path;
     pathLine.textContent = `Đã lưu: ${info.path}`;
-    body.appendChild(pathLine);
+    inner.appendChild(pathLine);
   }
+
+  if (details) details.open = autoOpenOutput;
 }
 
 /* ==========================================================================
@@ -1258,8 +1352,10 @@ function renderRunTabs() {
 
     const closeBtn = document.createElement("span");
     closeBtn.className = "run-tab-close";
-    closeBtn.textContent = "✕";
+    closeBtn.innerHTML = svgIcon("x", 9, { sw: 2.4 });
     closeBtn.title = "Đóng tab này";
+    closeBtn.setAttribute("role", "button");
+    closeBtn.setAttribute("aria-label", "Đóng tab này");
     closeBtn.onclick = (e) => {
       e.stopPropagation();
       closeRunTab(runID);
@@ -1369,8 +1465,11 @@ async function submitTerminalAskAnswer() {
     await api("/api/answer", { run_id: session.runID, answer });
     appendSessionLog(session, `> Phản hồi đã gửi: ${answer}`, "log-info");
     input.value = "";
-    session.status = "running";
-    session.askPrompt = null;
+    // Phản hồi có thể về sau sự kiện closed; không được hạ trạng thái đã kết thúc về running
+    if (session.status === "ask") {
+      session.status = "running";
+      session.askPrompt = null;
+    }
     updateGlobalRunIndicator();
     renderRunTabs();
     renderActiveTerminal();
@@ -1396,6 +1495,9 @@ function updateGlobalRunIndicator() {
   label.textContent = hasAsk
     ? `${runningCount} chờ nhập liệu!`
     : `${runningCount} đang chạy`;
+
+  const pill = document.getElementById("active-runs-indicator");
+  if (pill) pill.hidden = runningCount === 0;
 }
 
 /* ==========================================================================
@@ -1739,7 +1841,8 @@ function bindEvents() {
   const configBody = document.getElementById("dock-config-body");
   toggleConfigBtn.onclick = () => {
     configBody.hidden = !configBody.hidden;
-    toggleConfigBtn.textContent = configBody.hidden ? "Mở rộng" : "Thu gọn";
+    toggleConfigBtn.innerHTML = svgIcon(configBody.hidden ? "chevronDown" : "chevronUp", 14, { sw: 2.2 });
+    toggleConfigBtn.setAttribute("aria-label", configBody.hidden ? "Mở rộng khung cấu hình" : "Thu gọn khung cấu hình");
   };
 
   // Xóa tool đang chọn từ Cột 3

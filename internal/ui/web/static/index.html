@@ -40,14 +40,17 @@
       <div class="search-shortcut" id="search-shortcut-hint">
         <kbd>Ctrl</kbd><kbd>K</kbd>
       </div>
-      <button type="button" id="search-clear" class="search-clear" hidden title="Xóa tìm kiếm (Esc)">
-        ✕
+      <button type="button" id="search-clear" class="search-clear" hidden title="Xóa tìm kiếm (Esc)" aria-label="Xóa tìm kiếm">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
       </button>
     </div>
 
     <!-- TOPBAR ACTIONS -->
     <div class="topbar-actions">
-      <div class="active-runs-pill" id="active-runs-indicator" title="Số tiến trình đang chạy">
+      <div class="active-runs-pill" id="active-runs-indicator" title="Số tiến trình đang chạy" hidden>
         <span class="status-dot dot-idle" id="global-run-dot"></span>
         <span id="global-run-count">0 đang chạy</span>
       </div>
@@ -60,7 +63,7 @@
         <span>Cài đặt API</span>
       </button>
 
-      <button type="button" id="btn-refresh" class="btn btn-ghost btn-icon" title="Tải lại danh sách công cụ">
+      <button type="button" id="btn-refresh" class="btn btn-ghost btn-icon" title="Tải lại danh sách công cụ" aria-label="Tải lại danh sách công cụ">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"></polyline>
           <polyline points="1 20 1 14 7 14"></polyline>
@@ -68,7 +71,7 @@
         </svg>
       </button>
 
-      <button type="button" id="btn-theme" class="btn btn-ghost btn-icon" title="Chuyển đổi giao diện Sáng / Tối">
+      <button type="button" id="btn-theme" class="btn btn-ghost btn-icon" title="Chuyển đổi giao diện Sáng / Tối" aria-label="Chuyển đổi giao diện Sáng / Tối">
         <svg id="icon-theme-dark" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="5"></circle>
           <line x1="12" y1="1" x2="12" y2="3"></line>
@@ -109,7 +112,12 @@
 
       <div class="sidebar-footer">
         <button type="button" id="sidebar-btn-install" class="sidebar-install-card">
-          <div class="sidebar-install-icon">+</div>
+          <div class="sidebar-install-icon">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </div>
           <div class="sidebar-install-info">
             <strong>Thêm / Cài đặt Tool</strong>
             <span>Git, Binary, Python venv</span>
@@ -134,10 +142,16 @@
           <div class="center-controls">
             <div class="active-filter-chips" id="active-filter-bar" hidden>
               <span id="active-filter-text"></span>
-              <button type="button" id="btn-reset-filters" class="chip-reset">Xóa bộ lọc ✕</button>
+              <button type="button" id="btn-reset-filters" class="chip-reset">
+                <span>Xóa bộ lọc</span>
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
             </div>
             <div class="view-toggle" role="group" aria-label="Chế độ hiển thị">
-              <button type="button" id="btn-view-grid" class="view-btn active" title="Dạng lưới">
+              <button type="button" id="btn-view-grid" class="view-btn active" title="Dạng lưới" aria-label="Dạng lưới">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
                   <rect x="3" y="3" width="7" height="7"></rect>
                   <rect x="14" y="3" width="7" height="7"></rect>
@@ -145,7 +159,7 @@
                   <rect x="3" y="14" width="7" height="7"></rect>
                 </svg>
               </button>
-              <button type="button" id="btn-view-list" class="view-btn" title="Dạng danh sách gọn">
+              <button type="button" id="btn-view-list" class="view-btn" title="Dạng danh sách gọn" aria-label="Dạng danh sách gọn">
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="8" y1="6" x2="21" y2="6"></line>
                   <line x1="8" y1="12" x2="21" y2="12"></line>
@@ -179,7 +193,13 @@
           <p id="empty-desc">Thử thay đổi từ khóa tìm kiếm, xóa bộ lọc hoặc cài đặt thêm công cụ mới.</p>
           <div class="empty-actions">
             <button type="button" id="btn-empty-reset" class="btn btn-secondary">Xóa bộ lọc</button>
-            <button type="button" id="btn-empty-install" class="btn btn-accent">+ Cài đặt Tool mới</button>
+            <button type="button" id="btn-empty-install" class="btn btn-accent">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>Cài đặt Tool mới</span>
+            </button>
           </div>
         </div>
 
@@ -282,18 +302,23 @@
           <div class="install-terminal-card">
             <div class="term-header">
               <div class="term-header-left">
-                <div class="window-dots" aria-hidden="true">
-                  <span class="w-dot w-red"></span>
-                  <span class="w-dot w-amber"></span>
-                  <span class="w-dot w-green"></span>
-                </div>
                 <span class="term-title">Install Log Stream</span>
                 <span id="install-status-badge" class="term-status status-idle">SẴN SÀNG</span>
               </div>
               <div class="term-header-right">
                 <span id="install-timer" class="term-timer">00:00.0</span>
-                <button type="button" id="btn-install-copy" class="term-tool-btn" title="Copy log cài đặt">Copy</button>
-                <button type="button" id="btn-install-clear" class="term-tool-btn" title="Xóa log">Xóa</button>
+                <button type="button" id="btn-install-copy" class="term-tool-btn" title="Copy log cài đặt" aria-label="Copy log cài đặt">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+                <button type="button" id="btn-install-clear" class="term-tool-btn" title="Xóa log" aria-label="Xóa log">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                </button>
               </div>
             </div>
 
@@ -328,21 +353,34 @@
       <section class="dock-config" id="dock-config-section">
         <div class="dock-section-header">
           <div class="dock-tool-summary">
-            <span class="dock-tool-icon" id="dock-tool-icon">⚡</span>
+            <span class="dock-tool-icon" id="dock-tool-icon">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+            </span>
             <div class="dock-tool-titles">
               <h3 id="dock-tool-name">Chưa chọn công cụ</h3>
               <span id="dock-tool-meta" class="dock-tool-sub">Chọn 1 tool ở cột giữa để cấu hình hoặc chạy ngay</span>
             </div>
           </div>
           <div class="dock-header-actions">
-            <button type="button" id="btn-open-save-dir" class="term-tool-btn dock-open-btn" title="Mở thư mục nơi tool lưu kết quả" hidden>
-              📂 Mở thư mục lưu
+            <button type="button" id="btn-open-save-dir" class="term-tool-btn dock-open-btn" title="Mở thư mục nơi tool lưu kết quả" aria-label="Mở thư mục lưu" hidden>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+              </svg>
             </button>
-            <button type="button" id="btn-delete-tool" class="term-tool-btn dock-delete-btn" title="Xóa công cụ này khỏi hệ thống" hidden>
-              🗑 Xóa
+            <button type="button" id="btn-delete-tool" class="term-tool-btn dock-delete-btn" title="Xóa công cụ này khỏi hệ thống" aria-label="Xóa công cụ" hidden>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                <line x1="10" y1="11" x2="10" y2="17"></line>
+                <line x1="14" y1="11" x2="14" y2="17"></line>
+              </svg>
             </button>
-            <button type="button" id="btn-toggle-config" class="term-tool-btn" title="Thu gọn / Mở rộng khung cấu hình" hidden>
-              Thu gọn
+            <button type="button" id="btn-toggle-config" class="term-tool-btn" title="Thu gọn / Mở rộng khung cấu hình" aria-label="Thu gọn khung cấu hình" hidden>
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="18 15 12 9 6 15"></polyline>
+              </svg>
             </button>
           </div>
         </div>
@@ -381,7 +419,7 @@
           <div class="run-tabs-scroll" id="run-tabs-list" role="tablist">
             <!-- Dynamic tabs for each run_id -->
           </div>
-          <button type="button" id="btn-clear-all-runs" class="term-tool-btn" title="Đóng các phiên đã kết thúc" hidden>
+          <button type="button" id="btn-clear-all-runs" class="btn btn-ghost btn-sm" title="Đóng các phiên đã kết thúc" hidden>
             Dọn tab
           </button>
         </div>
@@ -389,25 +427,29 @@
         <!-- TERMINAL HEADER BAR -->
         <div class="term-header">
           <div class="term-header-left">
-            <div class="window-dots" aria-hidden="true">
-              <span class="w-dot w-red"></span>
-              <span class="w-dot w-amber"></span>
-              <span class="w-dot w-green"></span>
-            </div>
             <span id="term-active-title" class="term-title">Terminal SSE</span>
             <span id="term-status-badge" class="term-status status-idle">CHỜ LỆNH</span>
           </div>
 
           <div class="term-header-right">
             <span id="term-timer" class="term-timer" title="Thời gian thực thi">00:00.0</span>
-            <button type="button" id="btn-term-autoscroll" class="term-tool-btn active" title="Bật/tắt tự động cuộn xuống cuối">
-              Auto-scroll
+            <button type="button" id="btn-term-autoscroll" class="term-tool-btn active" title="Bật/tắt tự động cuộn xuống cuối" aria-label="Tự động cuộn" aria-pressed="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="7 13 12 18 17 13"></polyline>
+                <polyline points="7 6 12 11 17 6"></polyline>
+              </svg>
             </button>
-            <button type="button" id="btn-term-copy" class="term-tool-btn" title="Sao chép toàn bộ log vào Clipboard">
-              Copy Log
+            <button type="button" id="btn-term-copy" class="term-tool-btn" title="Sao chép toàn bộ log vào Clipboard" aria-label="Sao chép log">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
             </button>
-            <button type="button" id="btn-term-clear" class="term-tool-btn" title="Xóa nội dung hiển thị">
-              Xóa
+            <button type="button" id="btn-term-clear" class="term-tool-btn" title="Xóa nội dung hiển thị" aria-label="Xóa nội dung terminal">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
             </button>
           </div>
         </div>
@@ -426,7 +468,7 @@
         <!-- PROMINENT INTERACTIVE ASK BANNER (event.kind === "ask") -->
         <div id="term-ask-box" class="term-ask-banner" hidden>
           <div class="ask-prompt-header">
-            <span class="ask-badge">⚡ CẦN NHẬP LIỆU (ASK)</span>
+            <span class="ask-badge">CẦN NHẬP LIỆU (ASK)</span>
             <span id="term-ask-text" class="ask-question">Công cụ đang chờ bạn nhập phản hồi:</span>
           </div>
           <div class="ask-input-row">
@@ -437,7 +479,7 @@
               autocomplete="off"
             >
             <button type="button" id="btn-term-ask-send" class="btn btn-warn btn-sm">
-              Gửi trả lời ↵
+              Gửi trả lời
             </button>
           </div>
         </div>
@@ -462,7 +504,12 @@
     <div class="modal-box modal-wide" role="dialog" aria-modal="true" aria-labelledby="agent-settings-title">
       <div class="modal-head">
         <h3 id="agent-settings-title" class="modal-title">Cài đặt API cho Agent</h3>
-        <button type="button" id="btn-agent-settings-close" class="modal-close" title="Đóng">✕</button>
+        <button type="button" id="btn-agent-settings-close" class="modal-close" title="Đóng" aria-label="Đóng">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
       </div>
       <p class="modal-message">Dán API key của nhà cung cấp bất kỳ hỗ trợ chuẩn OpenAI (Groq, OpenRouter, Ollama local...). Key chỉ lưu trong trình duyệt của bạn và chỉ được gửi tới đúng Base URL khai báo.</p>
       <div class="form-field">
@@ -481,7 +528,13 @@
         <span class="field-hint">Bỏ trống để dùng mặc định. Xem model đang hỗ trợ: console.groq.com/docs/models</span>
       </div>
       <div class="modal-actions">
-        <button type="button" id="btn-agent-open-install" class="btn btn-ghost btn-sm">↪ Màn hình Cài đặt Tool</button>
+        <button type="button" id="btn-agent-open-install" class="btn btn-ghost btn-sm">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>Màn hình Cài đặt Tool</span>
+        </button>
         <span class="flex-spacer"></span>
         <button type="button" id="btn-agent-settings-save" class="btn btn-accent btn-sm">Lưu</button>
       </div>
@@ -499,8 +552,18 @@
     <div class="agent-panel-header">
       <span class="agent-panel-title">Agent mt</span>
       <span class="agent-panel-sub">Hỏi về công cụ của bạn</span>
-      <button type="button" id="btn-agent-settings-small" class="term-tool-btn" title="Cài đặt API cho Agent">⚙ Cài đặt</button>
-      <button type="button" id="btn-agent-close" class="term-tool-btn" title="Đóng khung chat">✕</button>
+      <button type="button" id="btn-agent-settings-small" class="term-tool-btn" title="Cài đặt API cho Agent" aria-label="Cài đặt API cho Agent">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+      <button type="button" id="btn-agent-close" class="term-tool-btn" title="Đóng khung chat" aria-label="Đóng khung chat">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
     </div>
     <div id="agent-messages" class="agent-messages">
       <div class="agent-bubble agent-bot">Xin chào! Tôi là agent mini của mt. Tôi biết các công cụ đang cài trên máy bạn và cách dùng chúng. Cần gì cứ hỏi nhé.</div>
